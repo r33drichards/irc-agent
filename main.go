@@ -30,7 +30,7 @@ func main() {
 	con.AddCallback("PRIVMSG", func(e *irc.Event) {
 		if strings.Contains(e.Message(), ",date") {
 			currentTime := time.Now()
-			con.Privmsg(channel, currentTime.Format("2006-January-02"))
+			con.Privmsg(channel, currentTime.Format("Mon 2006-01-2"))
 		}
 	})
 	con.Loop()
