@@ -1,0 +1,52 @@
+stages:
+  - build
+  - deploy
+
+services:
+  - docker:dind
+
+variables:
+  # When using dind service we need to instruct docker, to talk with the
+  # daemon started inside of the service. The daemon is available with
+  # a network connection instead of the default /var/run/docker.sock socket.
+  #
+  # The 'docker' hostname is the alias of the service container as described at
+  # https://docs.gitlab.com/ee/ci/docker/using_docker_images.html#accessing-the-services
+  #
+  # Note that if you're using Kubernetes executor, the variable should be set to
+  # tcp://localhost:2375 because of how Kubernetes executor connects services
+  # to the job container
+  DOCKER_HOST: tcp://docker:2375/
+  # When using dind, it's wise to use the overlayfs driver for
+  # improved performance.
+  DOCKER_DRIVER: overlay2
+  IMAGE_NAME: docker.io/reedrichards/layer-d8
+  IMAGE_TAG: $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+  IMAGE_TAG_LATEST: $IMAGE_NAME:latest
+  IMAGE_TAG_VERSION: $IMAGE_NAME:$CI_COMMIT_TAG
+
+before_script:
+  - cd /builds/reedrichards/layer-d8
+
+build:
+  stage: build
+  image: docker:dind
+  script:
+    - docker login -u reedrichards -p $PASS
+    - docker build -t $IMAGE_TAG .
+    - docker push $IMAGE_TAG
+    - echo $CI_COMMIT_SHORT_SHA
+
+deploy:
+  stage: deploy
+  image: alpine:3.7
+  only:
+    - master
+  script:
+    - apk update  && apk add --no-cache curl
+    - curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+    - chmod +x ./kubectl && mv ./kubectl /usr/local/bin/kubectl
+    - mkdir -p $HOME/.kube
+    - echo ${KUBE_CONFIG} | base64 -d > config
+    - cp config $HOME/.kube
+    - kubectl set image -n layer-d8 deployment/layer-d8 layer-d8=$IMAGE_TAG

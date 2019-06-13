@@ -1,0 +1,7 @@
+version: "3.7"
+
+services:
+  layer-d8:
+    build: .
+    env_file:
+      - .env
