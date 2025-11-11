@@ -95,7 +95,7 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	ircConn.UseTLS = false
 
 	// Create Gemini model
-	model, err := gemini.NewModel(ctx, "gemini-2.0-flash-exp", &genai.ClientConfig{
+	model, err := gemini.NewModel(ctx, "gemini-2.5-flash-lite", &genai.ClientConfig{
 		APIKey: apiKey,
 	})
 	if err != nil {
