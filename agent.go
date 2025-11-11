@@ -203,7 +203,7 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
 	// Create a prompt for the agent
-	prompt := fmt.Sprintf("User %s said: %s\n\nPlease respond appropriately using the send_irc_message tool.", sender, message)
+	prompt := fmt.Sprintf("User %s said: %s\n\nPlease respond appropriately using the send_irc_message tool. you must use irc tool to communicate, there is no other way", sender, message)
 
 	log.Printf("Processing message from %s: %s", sender, message)
 
