@@ -128,8 +128,9 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		Instruction: fmt.Sprintf(`You are a helpful IRC bot in the %s channel.
 Your role is to assist users with their questions and engage in friendly conversation.
 When users ask you questions or mention you, provide helpful and concise responses.
-Always use the send_irc_message tool to respond to users.
-Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, channel),
+Your responses are automatically sent to the IRC channel, so just respond naturally.
+Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
+You have access to tools that will be displayed to users when used.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
 		},
@@ -203,7 +204,7 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
 	// Create a prompt for the agent
-	prompt := fmt.Sprintf("User %s said: %s\n\nPlease respond appropriately using the send_irc_message tool. you must use irc tool to communicate, there is no other way", sender, message)
+	prompt := fmt.Sprintf("User %s said: %s", sender, message)
 
 	log.Printf("Processing message from %s: %s", sender, message)
 
@@ -242,33 +243,94 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	for event, err := range events {
 		if err != nil {
 			log.Printf("Error processing message: %v", err)
+			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("Error: %v", err))
 			return
 		}
 
-		// Log events
-		if event != nil {
+		// Process event content
+		if event != nil && event.Content != nil && len(event.Content.Parts) > 0 {
 			log.Printf("Agent event - Author: %s, InvocationID: %s", event.Author, event.InvocationID)
+
+			for _, part := range event.Content.Parts {
+				// Handle text responses - send directly to IRC
+				if part.Text != "" && event.Author != genai.RoleUser {
+					log.Printf("Agent text response: %s", part.Text)
+					// Split long messages if needed (IRC has message length limits)
+					ia.sendToIRC(part.Text)
+				}
+
+				// Handle function calls - send summary to IRC
+				if part.FunctionCall != nil {
+					toolName := part.FunctionCall.Name
+					log.Printf("Agent calling tool: %s", toolName)
+
+					// Don't send notification for send_irc_message tool to avoid clutter
+					if toolName != "send_irc_message" {
+						summary := fmt.Sprintf("[Using tool: %s]", toolName)
+						ia.ircConn.Privmsg(ia.channel, summary)
+					}
+				}
+
+				// Handle function responses - send summary for non-IRC tools
+				if part.FunctionResponse != nil {
+					toolName := part.FunctionResponse.Name
+					log.Printf("Tool %s responded", toolName)
+
+					// For non-IRC tools, show completion
+					if toolName != "send_irc_message" {
+						summary := fmt.Sprintf("[Tool %s completed]", toolName)
+						ia.ircConn.Privmsg(ia.channel, summary)
+					}
+				}
+			}
 
 			// Log if this is a final response
 			if event.IsFinalResponse() {
 				log.Printf("Agent sent final response")
 			}
-
-			// Check if the content has function calls
-			if event.Content != nil && len(event.Content.Parts) > 0 {
-				for _, part := range event.Content.Parts {
-					if part.FunctionCall != nil {
-						log.Printf("Agent calling tool: %s", part.FunctionCall.Name)
-					}
-					if part.FunctionResponse != nil {
-						log.Printf("Tool %s responded", part.FunctionResponse.Name)
-					}
-				}
-			}
 		}
 	}
 
 	log.Printf("Agent finished processing message from %s", sender)
+}
+
+// sendToIRC sends a message to IRC, splitting if necessary for length limits
+func (ia *IRCAgent) sendToIRC(message string) {
+	// IRC message limit is typically around 512 bytes, but we'll use 400 to be safe
+	const maxLen = 400
+
+	if len(message) <= maxLen {
+		ia.ircConn.Privmsg(ia.channel, message)
+		return
+	}
+
+	// Split long messages into chunks
+	for len(message) > 0 {
+		end := maxLen
+		if end > len(message) {
+			end = len(message)
+		}
+
+		// Try to break at a space if possible
+		if end < len(message) {
+			lastSpace := end
+			for i := end - 1; i > end-50 && i > 0; i-- {
+				if message[i] == ' ' {
+					lastSpace = i
+					break
+				}
+			}
+			if lastSpace != end {
+				end = lastSpace
+			}
+		}
+
+		ia.ircConn.Privmsg(ia.channel, message[:end])
+		message = message[end:]
+		if len(message) > 0 && message[0] == ' ' {
+			message = message[1:] // Skip leading space
+		}
+	}
 }
 
 func main() {
