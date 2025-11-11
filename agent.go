@@ -65,11 +65,19 @@ func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageP
 	}
 }
 
+const (
+	// MessageWindowSize is the number of messages to keep in the sliding window
+	MessageWindowSize = 20
+	// SummarizationThreshold is when to trigger summarization (80% of window)
+	SummarizationThreshold = 16
+)
+
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
 	agent          agent.Agent
 	runner         *runner.Runner
 	sessionService session.Service
+	memoryService  memory.Service
 	ircConn        *irc.Connection
 	channel        string
 	handler        *IRCMessageHandler
@@ -129,7 +137,11 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 Your role is to assist users with their questions and engage in friendly conversation.
 When users ask you questions or mention you, provide helpful and concise responses.
 Always use the send_irc_message tool to respond to users.
-Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, channel),
+Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
+
+IMPORTANT: You have access to a memory system that stores summaries of past conversations.
+If you need context from earlier in the conversation that isn't in the recent message history,
+check your memories - they contain important information from past interactions with this user.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
 		},
@@ -141,13 +153,16 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 	// Create session service
 	sessionService := session.InMemoryService()
 
+	// Create memory service
+	memoryService := memory.InMemoryService()
+
 	// Create runner with in-memory services
 	agentRunner, err := runner.New(runner.Config{
 		AppName:         "irc_agent",
 		Agent:           agent,
 		SessionService:  sessionService,
 		ArtifactService: artifact.InMemoryService(),
-		MemoryService:   memory.InMemoryService(),
+		MemoryService:   memoryService,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
@@ -157,6 +172,7 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 		agent:          agent,
 		runner:         agentRunner,
 		sessionService: sessionService,
+		memoryService:  memoryService,
 		ircConn:        ircConn,
 		channel:        channel,
 		handler:        ircHandler,
@@ -200,6 +216,102 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 	return nil
 }
 
+// getMessageCount retrieves the message count from session state
+func (ia *IRCAgent) getMessageCount(ctx context.Context, sessionID, userID string) int {
+	resp, err := ia.sessionService.Get(ctx, &session.GetRequest{
+		AppName:   "irc_agent",
+		UserID:    userID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return 0
+	}
+
+	countVal, err := resp.Session.State().Get("message_count")
+	if err != nil {
+		return 0
+	}
+
+	if count, ok := countVal.(float64); ok {
+		return int(count)
+	}
+	if count, ok := countVal.(int); ok {
+		return count
+	}
+	return 0
+}
+
+// incrementMessageCount increments the message count in session state
+func (ia *IRCAgent) incrementMessageCount(ctx context.Context, sessionID, userID string) error {
+	resp, err := ia.sessionService.Get(ctx, &session.GetRequest{
+		AppName:   "irc_agent",
+		UserID:    userID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return err
+	}
+
+	count := ia.getMessageCount(ctx, sessionID, userID)
+	return resp.Session.State().Set("message_count", count+1)
+}
+
+// summarizeAndStore adds the current session to memory service before resetting
+func (ia *IRCAgent) summarizeAndStore(ctx context.Context, sessionID, userID string) error {
+	log.Printf("Storing conversation history to memory for user %s (threshold reached)", userID)
+
+	// Get the current session
+	resp, err := ia.sessionService.Get(ctx, &session.GetRequest{
+		AppName:   "irc_agent",
+		UserID:    userID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		log.Printf("Error getting session: %v", err)
+		return err
+	}
+
+	// Add the session to memory service - the memory service will extract important information
+	err = ia.memoryService.AddSession(ctx, resp.Session)
+	if err != nil {
+		log.Printf("Error adding session to memory: %v", err)
+		return err
+	}
+
+	log.Printf("Successfully stored session to memory for user %s", userID)
+	return nil
+}
+
+// resetSessionHistory resets the session to implement the sliding window
+func (ia *IRCAgent) resetSessionHistory(ctx context.Context, sessionID, userID string) error {
+	log.Printf("Resetting session history for user %s (sliding window)", userID)
+
+	// Delete the old session
+	err := ia.sessionService.Delete(ctx, &session.DeleteRequest{
+		AppName:   "irc_agent",
+		UserID:    userID,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		log.Printf("Error deleting old session: %v", err)
+	}
+
+	// Create a new session
+	_, err = ia.sessionService.Create(ctx, &session.CreateRequest{
+		AppName:   "irc_agent",
+		UserID:    userID,
+		SessionID: sessionID,
+		State:     map[string]any{"message_count": 0},
+	})
+	if err != nil {
+		log.Printf("Error creating new session: %v", err)
+		return err
+	}
+
+	log.Printf("Successfully reset session for user %s", userID)
+	return nil
+}
+
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
 	// Create a prompt for the agent
@@ -226,10 +338,28 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 			AppName:   "irc_agent",
 			UserID:    sender,
 			SessionID: sessionID,
-			State:     make(map[string]any),
+			State:     map[string]any{"message_count": 0},
 		})
 		if err != nil {
 			log.Printf("Error creating session: %v", err)
+			return
+		}
+	}
+
+	// Check if we need to summarize and reset (sliding window)
+	messageCount := ia.getMessageCount(ctx, sessionID, sender)
+	log.Printf("User %s message count: %d/%d", sender, messageCount, SummarizationThreshold)
+
+	if messageCount >= SummarizationThreshold {
+		// Summarize the conversation and store in memory
+		if err := ia.summarizeAndStore(ctx, sessionID, sender); err != nil {
+			log.Printf("Warning: Failed to summarize conversation: %v", err)
+			// Continue anyway - we'll still reset to prevent unbounded growth
+		}
+
+		// Reset the session to clear old history (sliding window)
+		if err := ia.resetSessionHistory(ctx, sessionID, sender); err != nil {
+			log.Printf("Error resetting session: %v", err)
 			return
 		}
 	}
@@ -266,6 +396,11 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 				}
 			}
 		}
+	}
+
+	// Increment message count after successful processing
+	if err := ia.incrementMessageCount(ctx, sessionID, sender); err != nil {
+		log.Printf("Warning: Failed to increment message count: %v", err)
 	}
 
 	log.Printf("Agent finished processing message from %s", sender)
