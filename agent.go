@@ -84,11 +84,12 @@ func (t *IRCMessageTool) IsLongRunning() bool {
 
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
-	agent   agent.Agent
-	runner  *runner.Runner
-	ircConn *irc.Connection
-	channel string
-	tool    *IRCMessageTool
+	agent          agent.Agent
+	runner         *runner.Runner
+	sessionService session.Service
+	ircConn        *irc.Connection
+	channel        string
+	tool           *IRCMessageTool
 }
 
 // NewIRCAgent creates a new IRC agent with ADK integration
@@ -142,11 +143,14 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 		return nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
+	// Create session service
+	sessionService := session.InMemoryService()
+
 	// Create runner with in-memory services
 	agentRunner, err := runner.New(runner.Config{
 		AppName:         "irc_agent",
 		Agent:           agent,
-		SessionService:  session.InMemoryService(),
+		SessionService:  sessionService,
 		ArtifactService: artifact.InMemoryService(),
 		MemoryService:   memory.InMemoryService(),
 	})
@@ -155,11 +159,12 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 	}
 
 	return &IRCAgent{
-		agent:   agent,
-		runner:  agentRunner,
-		ircConn: ircConn,
-		channel: channel,
-		tool:    ircTool,
+		agent:          agent,
+		runner:         agentRunner,
+		sessionService: sessionService,
+		ircConn:        ircConn,
+		channel:        channel,
+		tool:           ircTool,
 	}, nil
 }
 
@@ -212,6 +217,27 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 
 	// Use a unique session ID for each user to maintain conversation history
 	sessionID := fmt.Sprintf("irc-session-%s", sender)
+
+	// Ensure session exists - create it if it doesn't
+	_, err := ia.sessionService.Get(ctx, &session.GetRequest{
+		AppName:   "irc_agent",
+		UserID:    sender,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		// Session doesn't exist, create it
+		log.Printf("Creating new session for user %s", sender)
+		_, err = ia.sessionService.Create(ctx, &session.CreateRequest{
+			AppName:   "irc_agent",
+			UserID:    sender,
+			SessionID: sessionID,
+			State:     make(map[string]any),
+		})
+		if err != nil {
+			log.Printf("Error creating session: %v", err)
+			return
+		}
+	}
 
 	// Run the agent with the message
 	runConfig := agent.RunConfig{}
