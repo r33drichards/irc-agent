@@ -86,10 +86,9 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	// Get environment variables
 	server := os.Getenv("SERVER")
 	channel := os.Getenv("CHANNEL")
-	password := os.Getenv("PASS")
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 
-	if server == "" || channel == "" || password == "" {
+	if server == "" || channel == "" ||{
 		return nil, fmt.Errorf("SERVER, CHANNEL, and PASS environment variables are required")
 	}
 
@@ -98,7 +97,7 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	}
 
 	// Create IRC connection
-	ircConn := irc.IRC("layer-d8", "layer-d8")
+	ircConn := irc.IRC("agent", "agent")
 	ircConn.UseTLS = false
 
 	// Create Gemini model
@@ -149,14 +148,6 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 	// Set up IRC event handlers
 	ia.ircConn.AddCallback("001", func(e *irc.Event) {
 		log.Printf("Connected to IRC server")
-		ia.ircConn.Privmsg("nickserv", fmt.Sprintf("identify %s", password))
-		log.Printf("Authenticated with NickServ")
-
-		// Wait a bit then join channel
-		go func() {
-			<-ctx.Done()
-		}()
-
 		ia.ircConn.Join(ia.channel)
 		log.Printf("Joined channel: %s", ia.channel)
 	})
