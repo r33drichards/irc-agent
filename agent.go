@@ -19,67 +19,50 @@ import (
 	"google.golang.org/adk/server/restapi/services"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
 )
 
-// IRCMessageTool is a custom tool for sending messages to an IRC channel
-type IRCMessageTool struct {
+// SendIRCMessageParams defines the input parameters for sending IRC messages
+type SendIRCMessageParams struct {
+	Message string `json:"message" jsonschema:"The message to send to the IRC channel"`
+}
+
+// SendIRCMessageResults defines the output of sending IRC messages
+type SendIRCMessageResults struct {
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	Channel      string `json:"channel"`
+	ErrorMessage string `json:"error_message,omitempty"`
+}
+
+// IRCMessageHandler handles IRC message sending with connection management
+type IRCMessageHandler struct {
 	conn    *irc.Connection
 	channel string
 	mu      sync.Mutex
 }
 
-// Name returns the name of the tool
-func (t *IRCMessageTool) Name() string {
-	return "send_irc_message"
-}
+// SendMessage sends a message to the IRC channel
+func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageParams) SendIRCMessageResults {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-// Description returns the description of the tool
-func (t *IRCMessageTool) Description() string {
-	return "Sends a message to the IRC channel. Use this tool to respond to users in the IRC channel."
-}
-
-// InputSchema returns the JSON schema for the tool's input parameters
-func (t *IRCMessageTool) InputSchema() interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"message": map[string]interface{}{
-				"type":        "string",
-				"description": "The message to send to the IRC channel",
-			},
-		},
-		"required": []string{"message"},
-	}
-}
-
-// Call executes the tool with the given input
-func (t *IRCMessageTool) Call(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	message, ok := input["message"].(string)
-	if !ok {
-		return nil, fmt.Errorf("message must be a string")
-	}
-
-	if t.conn == nil {
-		return nil, fmt.Errorf("IRC connection not initialized")
+	if h.conn == nil {
+		return SendIRCMessageResults{
+			Status:       "error",
+			ErrorMessage: "IRC connection not initialized",
+		}
 	}
 
 	// Send the message to the channel
-	t.conn.Privmsg(t.channel, message)
+	h.conn.Privmsg(h.channel, params.Message)
 
-	return map[string]interface{}{
-		"status":  "sent",
-		"message": message,
-		"channel": t.channel,
-	}, nil
-}
-
-// IsLongRunning returns false as this tool executes quickly
-func (t *IRCMessageTool) IsLongRunning() bool {
-	return false
+	return SendIRCMessageResults{
+		Status:  "success",
+		Message: params.Message,
+		Channel: h.channel,
+	}
 }
 
 // IRCAgent wraps the ADK agent with IRC functionality
@@ -89,7 +72,7 @@ type IRCAgent struct {
 	sessionService session.Service
 	ircConn        *irc.Connection
 	channel        string
-	tool           *IRCMessageTool
+	handler        *IRCMessageHandler
 }
 
 // NewIRCAgent creates a new IRC agent with ADK integration
@@ -119,10 +102,22 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
 
-	// Create IRC message tool
-	ircTool := &IRCMessageTool{
+	// Create IRC message handler
+	ircHandler := &IRCMessageHandler{
 		conn:    ircConn,
 		channel: channel,
+	}
+
+	// Create IRC message tool using functiontool
+	ircTool, err := functiontool.New(
+		functiontool.Config{
+			Name:        "send_irc_message",
+			Description: "Sends a message to the IRC channel. Use this tool to respond to users in the IRC channel.",
+		},
+		ircHandler.SendMessage,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
 	}
 
 	// Create ADK agent
@@ -164,7 +159,7 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 		sessionService: sessionService,
 		ircConn:        ircConn,
 		channel:        channel,
-		tool:           ircTool,
+		handler:        ircHandler,
 	}, nil
 }
 
