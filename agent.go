@@ -9,11 +9,16 @@ import (
 	"sync"
 
 	"github.com/thoj/go-ircevent"
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
+	"google.golang.org/adk/artifact"
 	"google.golang.org/adk/cmd/launcher/adk"
 	"google.golang.org/adk/cmd/launcher/full"
+	"google.golang.org/adk/memory"
 	"google.golang.org/adk/model/gemini"
+	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/restapi/services"
+	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
@@ -73,9 +78,15 @@ func (t *IRCMessageTool) Call(ctx context.Context, input map[string]interface{})
 	}, nil
 }
 
+// IsLongRunning returns false as this tool executes quickly
+func (t *IRCMessageTool) IsLongRunning() bool {
+	return false
+}
+
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
-	agent   *llmagent.Agent
+	agent   agent.Agent
+	runner  *runner.Runner
 	ircConn *irc.Connection
 	channel string
 	tool    *IRCMessageTool
@@ -88,8 +99,8 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	channel := os.Getenv("CHANNEL")
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 
-	if server == "" || channel == "" ||{
-		return nil, fmt.Errorf("SERVER, CHANNEL, and PASS environment variables are required")
+	if server == "" || channel == "" {
+		return nil, fmt.Errorf("SERVER and CHANNEL environment variables are required")
 	}
 
 	if apiKey == "" {
@@ -132,8 +143,21 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 		return nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
+	// Create runner with in-memory services
+	agentRunner, err := runner.New(runner.Config{
+		AppName:         "irc_agent",
+		Agent:           agent,
+		SessionService:  session.InMemoryService(),
+		ArtifactService: artifact.InMemoryService(),
+		MemoryService:   memory.InMemoryService(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create runner: %w", err)
+	}
+
 	return &IRCAgent{
 		agent:   agent,
+		runner:  agentRunner,
 		ircConn: ircConn,
 		channel: channel,
 		tool:    ircTool,
@@ -142,7 +166,6 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 
 // Start connects to IRC and starts listening for messages
 func (ia *IRCAgent) Start(ctx context.Context) error {
-	password := os.Getenv("PASS")
 	server := os.Getenv("SERVER")
 
 	// Set up IRC event handlers
@@ -187,14 +210,49 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	// Create a prompt for the agent
 	prompt := fmt.Sprintf("User %s said: %s\n\nPlease respond appropriately using the send_irc_message tool.", sender, message)
 
-	// Send to agent (this would use the agent's chat/completion API)
 	log.Printf("Processing message from %s: %s", sender, message)
 
-	// For now, we'll log that we would process this
-	// In a full implementation, you would call the agent's API here
-	// For example: ia.agent.Chat(ctx, prompt)
+	// Create the content for the agent
+	content := genai.NewContentFromText(prompt, genai.RoleUser)
 
-	log.Printf("Agent would process: %s", prompt)
+	// Use a unique session ID for each user to maintain conversation history
+	sessionID := fmt.Sprintf("irc-session-%s", sender)
+
+	// Run the agent with the message
+	runConfig := agent.RunConfig{}
+	events := ia.runner.Run(ctx, sender, sessionID, content, runConfig)
+
+	// Process the events
+	for event, err := range events {
+		if err != nil {
+			log.Printf("Error processing message: %v", err)
+			return
+		}
+
+		// Log events
+		if event != nil {
+			log.Printf("Agent event - Author: %s, InvocationID: %s", event.Author, event.InvocationID)
+
+			// Log if this is a final response
+			if event.IsFinalResponse() {
+				log.Printf("Agent sent final response")
+			}
+
+			// Check if the content has function calls
+			if event.Content != nil && len(event.Content.Parts) > 0 {
+				for _, part := range event.Content.Parts {
+					if part.FunctionCall != nil {
+						log.Printf("Agent calling tool: %s", part.FunctionCall.Name)
+					}
+					if part.FunctionResponse != nil {
+						log.Printf("Tool %s responded", part.FunctionResponse.Name)
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("Agent finished processing message from %s", sender)
 }
 
 func main() {
