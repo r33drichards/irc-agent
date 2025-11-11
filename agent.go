@@ -182,15 +182,11 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 
 		log.Printf("[%s] <%s> %s", ia.channel, sender, message)
 
-		// Check if the bot is mentioned or if message starts with a command
-		botMentioned := strings.Contains(strings.ToLower(message), "layer-d8") ||
-			strings.HasPrefix(message, "!") ||
-			strings.HasPrefix(message, ",")
-
-		if botMentioned {
-			// Process message with ADK agent
+		if e.Nick != "agent" {
 			go ia.processMessage(ctx, sender, message)
 		}
+
+
 	})
 
 	// Connect to IRC server
