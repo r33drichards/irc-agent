@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/thoj/go-ircevent"
 	"google.golang.org/adk/agent"
@@ -67,12 +69,16 @@ func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageP
 
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
-	agent          agent.Agent
-	runner         *runner.Runner
-	sessionService session.Service
-	ircConn        *irc.Connection
-	channel        string
-	handler        *IRCMessageHandler
+	agent           agent.Agent
+	runner          *runner.Runner
+	sessionService  session.Service
+	ircConn         *irc.Connection
+	channel         string
+	handler         *IRCMessageHandler
+	rateLimiter     *time.Ticker
+	rateLimitMu     sync.Mutex
+	lastRequestTime time.Time
+	requestInterval time.Duration
 }
 
 // NewIRCAgent creates a new IRC agent with ADK integration
@@ -153,13 +159,19 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).`, ch
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}
 
+	// Set rate limit to 5 seconds between requests to avoid hitting API limits
+	// Free tier allows 15 requests per minute, so ~4 seconds per request
+	requestInterval := 5 * time.Second
+
 	return &IRCAgent{
-		agent:          agent,
-		runner:         agentRunner,
-		sessionService: sessionService,
-		ircConn:        ircConn,
-		channel:        channel,
-		handler:        ircHandler,
+		agent:           agent,
+		runner:          agentRunner,
+		sessionService:  sessionService,
+		ircConn:         ircConn,
+		channel:         channel,
+		handler:         ircHandler,
+		requestInterval: requestInterval,
+		lastRequestTime: time.Now().Add(-requestInterval), // Allow first request immediately
 	}, nil
 }
 
@@ -200,8 +212,41 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 	return nil
 }
 
+// isRateLimitError checks if an error is a rate limit error
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "429") ||
+		strings.Contains(errStr, "quota exceeded") ||
+		strings.Contains(errStr, "rate limit") ||
+		strings.Contains(errStr, "RESOURCE_EXHAUSTED")
+}
+
+// sendErrorToIRC sends an error message directly to the IRC channel
+func (ia *IRCAgent) sendErrorToIRC(message string) {
+	ia.handler.mu.Lock()
+	defer ia.handler.mu.Unlock()
+	if ia.ircConn != nil {
+		ia.ircConn.Privmsg(ia.channel, message)
+	}
+}
+
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
+	// Check rate limit before processing
+	ia.rateLimitMu.Lock()
+	timeSinceLastRequest := time.Since(ia.lastRequestTime)
+	if timeSinceLastRequest < ia.requestInterval {
+		waitTime := ia.requestInterval - timeSinceLastRequest
+		ia.rateLimitMu.Unlock()
+		log.Printf("Rate limiting: waiting %v before processing message from %s", waitTime, sender)
+		ia.sendErrorToIRC(fmt.Sprintf("⚠️ Rate limit: Please wait %d seconds between messages", int(waitTime.Seconds())))
+		return
+	}
+	ia.lastRequestTime = time.Now()
+	ia.rateLimitMu.Unlock()
 	// Create a prompt for the agent
 	prompt := fmt.Sprintf("User %s said: %s\n\nPlease respond appropriately using the send_irc_message tool.", sender, message)
 
@@ -242,6 +287,13 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	for event, err := range events {
 		if err != nil {
 			log.Printf("Error processing message: %v", err)
+
+			// Check if it's a rate limit error and notify the user
+			if isRateLimitError(err) {
+				ia.sendErrorToIRC(fmt.Sprintf("⚠️ API rate limit exceeded. The bot is receiving too many requests. Please try again in a minute."))
+			} else {
+				ia.sendErrorToIRC(fmt.Sprintf("❌ Error processing your message: %s", sender))
+			}
 			return
 		}
 
