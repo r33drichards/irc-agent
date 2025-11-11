@@ -173,6 +173,9 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 		log.Printf("Connected to IRC server")
 		ia.ircConn.Join(ia.channel)
 		log.Printf("Joined channel: %s", ia.channel)
+		// Send a hello message to announce presence
+		ia.ircConn.Privmsg(ia.channel, "Hello! IRC agent is now online and ready to help.")
+		log.Printf("Sent hello message to channel")
 	})
 
 	// Handle PRIVMSG events
