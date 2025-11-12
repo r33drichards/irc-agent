@@ -218,21 +218,21 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	// Create the content for the agent
 	content := genai.NewContentFromText(prompt, genai.RoleUser)
 
-	// Use a unique session ID for each user to maintain conversation history
-	sessionID := fmt.Sprintf("irc-session-%s", sender)
+	// Use a unique session ID for the channel to maintain conversation history
+	sessionID := fmt.Sprintf("irc-session-%s", ia.channel)
 
 	// Ensure session exists - create it if it doesn't
 	_, err := ia.sessionService.Get(ctx, &session.GetRequest{
 		AppName:   "irc_agent",
-		UserID:    sender,
+		UserID:    ia.channel,
 		SessionID: sessionID,
 	})
 	if err != nil {
 		// Session doesn't exist, create it
-		log.Printf("Creating new session for user %s", sender)
+		log.Printf("Creating new session for channel %s", ia.channel)
 		_, err = ia.sessionService.Create(ctx, &session.CreateRequest{
 			AppName:   "irc_agent",
-			UserID:    sender,
+			UserID:    ia.channel,
 			SessionID: sessionID,
 			State:     make(map[string]any),
 		})
