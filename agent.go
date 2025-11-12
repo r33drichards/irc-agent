@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/thoj/go-ircevent"
@@ -203,6 +204,12 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
+	// Handle IRC commands (messages starting with /)
+	if strings.HasPrefix(message, "/") {
+		ia.handleCommand(sender, message)
+		return
+	}
+
 	// Create a prompt for the agent
 	prompt := fmt.Sprintf("User %s said: %s", sender, message)
 
@@ -292,6 +299,55 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	}
 
 	log.Printf("Agent finished processing message from %s", sender)
+}
+
+// handleCommand processes IRC commands sent to the agent
+func (ia *IRCAgent) handleCommand(sender, message string) {
+	// Parse the command and arguments
+	parts := strings.Fields(message)
+	if len(parts) == 0 {
+		return
+	}
+
+	command := strings.ToLower(parts[0])
+	args := parts[1:]
+
+	log.Printf("User %s sent command: %s %v", sender, command, args)
+
+	switch command {
+	case "/join":
+		if len(args) < 1 {
+			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /join #channel", sender))
+			return
+		}
+		channel := args[0]
+		ia.ircConn.Join(channel)
+		log.Printf("Joining channel %s (requested by %s)", channel, sender)
+		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Joining %s", sender, channel))
+
+	case "/part":
+		if len(args) < 1 {
+			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /part #channel", sender))
+			return
+		}
+		channel := args[0]
+		ia.ircConn.Part(channel)
+		log.Printf("Leaving channel %s (requested by %s)", channel, sender)
+		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Leaving %s", sender, channel))
+
+	case "/nick":
+		if len(args) < 1 {
+			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /nick newnick", sender))
+			return
+		}
+		newNick := args[0]
+		ia.ircConn.Nick(newNick)
+		log.Printf("Changing nick to %s (requested by %s)", newNick, sender)
+		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Changing nick to %s", sender, newNick))
+
+	default:
+		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Unknown command: %s. Available commands: /join, /part, /nick", sender, command))
+	}
 }
 
 // sendToIRC sends a message to IRC, splitting if necessary for length limits
