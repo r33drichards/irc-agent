@@ -27,6 +27,7 @@ import (
 // SendIRCMessageParams defines the input parameters for sending IRC messages
 type SendIRCMessageParams struct {
 	Message string `json:"message" jsonschema:"The message to send to the IRC channel"`
+	Channel string `json:"channel" jsonschema:"The IRC channel to send the message to"`
 }
 
 // SendIRCMessageResults defines the output of sending IRC messages
@@ -39,9 +40,8 @@ type SendIRCMessageResults struct {
 
 // IRCMessageHandler handles IRC message sending with connection management
 type IRCMessageHandler struct {
-	conn    *irc.Connection
-	channel string
-	mu      sync.Mutex
+	conn *irc.Connection
+	mu   sync.Mutex
 }
 
 // SendMessage sends a message to the IRC channel
@@ -56,13 +56,13 @@ func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageP
 		}
 	}
 
-	// Send the message to the channel
-	h.conn.Privmsg(h.channel, params.Message)
+	// Send the message to the specified channel
+	h.conn.Privmsg(params.Channel, params.Message)
 
 	return SendIRCMessageResults{
 		Status:  "success",
 		Message: params.Message,
-		Channel: h.channel,
+		Channel: params.Channel,
 	}
 }
 
@@ -105,8 +105,7 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 
 	// Create IRC message handler
 	ircHandler := &IRCMessageHandler{
-		conn:    ircConn,
-		channel: channel,
+		conn: ircConn,
 	}
 
 	// Create IRC message tool using functiontool
@@ -172,19 +171,21 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 	// Set up IRC event handlers
 	ia.ircConn.AddCallback("001", func(e *irc.Event) {
 		log.Printf("Connected to IRC server")
-		ia.ircConn.Join(ia.channel)
-		log.Printf("Joined channel: %s", ia.channel)
+		ia.ircConn.Join("#agent")
+		log.Printf("Joined channel: #agent")
 	})
 
 	// Handle PRIVMSG events
 	ia.ircConn.AddCallback("PRIVMSG", func(e *irc.Event) {
 		message := e.Message()
 		sender := e.Nick
+		// Extract the channel from the event (first argument)
+		channel := e.Arguments[0]
 
-		log.Printf("[%s] <%s> %s", ia.channel, sender, message)
+		log.Printf("[%s] <%s> %s", channel, sender, message)
 
 		if e.Nick != "agent" {
-			go ia.processMessage(ctx, sender, message)
+			go ia.processMessage(ctx, sender, message, channel)
 		}
 
 
@@ -203,36 +204,36 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 }
 
 // processMessage sends the IRC message to the ADK agent for processing
-func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) {
+func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel string) {
 	// Handle IRC commands (messages starting with /)
 	if strings.HasPrefix(message, "/") {
-		ia.handleCommand(sender, message)
+		ia.handleCommand(sender, message, channel)
 		return
 	}
 
-	// Create a prompt for the agent
-	prompt := fmt.Sprintf("User %s said: %s", sender, message)
+	// Create a prompt for the agent that includes the channel context
+	prompt := fmt.Sprintf("User %s in channel %s said: %s\n\nIMPORTANT: When responding, you MUST use the send_irc_message tool with channel parameter set to: %s", sender, channel, message, channel)
 
-	log.Printf("Processing message from %s: %s", sender, message)
+	log.Printf("Processing message from %s in %s: %s", sender, channel, message)
 
 	// Create the content for the agent
 	content := genai.NewContentFromText(prompt, genai.RoleUser)
 
 	// Use a unique session ID for the channel to maintain conversation history
-	sessionID := fmt.Sprintf("irc-session-%s", ia.channel)
+	sessionID := fmt.Sprintf("irc-session-%s", channel)
 
 	// Ensure session exists - create it if it doesn't
 	_, err := ia.sessionService.Get(ctx, &session.GetRequest{
 		AppName:   "irc_agent",
-		UserID:    ia.channel,
+		UserID:    channel,
 		SessionID: sessionID,
 	})
 	if err != nil {
 		// Session doesn't exist, create it
-		log.Printf("Creating new session for channel %s", ia.channel)
+		log.Printf("Creating new session for channel %s", channel)
 		_, err = ia.sessionService.Create(ctx, &session.CreateRequest{
 			AppName:   "irc_agent",
-			UserID:    ia.channel,
+			UserID:    channel,
 			SessionID: sessionID,
 			State:     make(map[string]any),
 		})
@@ -250,7 +251,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 	for event, err := range events {
 		if err != nil {
 			log.Printf("Error processing message: %v", err)
-			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("Error: %v", err))
+			ia.ircConn.Privmsg(channel, fmt.Sprintf("Error: %v", err))
 			return
 		}
 
@@ -263,7 +264,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 				if part.Text != "" && event.Author != genai.RoleUser {
 					log.Printf("Agent text response: %s", part.Text)
 					// Split long messages if needed (IRC has message length limits)
-					ia.sendToIRC(part.Text)
+					ia.sendToIRC(part.Text, channel)
 				}
 
 				// Handle function calls - send summary to IRC
@@ -274,7 +275,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 					// Don't send notification for send_irc_message tool to avoid clutter
 					if toolName != "send_irc_message" {
 						summary := fmt.Sprintf("[Using tool: %s]", toolName)
-						ia.ircConn.Privmsg(ia.channel, summary)
+						ia.ircConn.Privmsg(channel, summary)
 					}
 				}
 
@@ -286,7 +287,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 					// For non-IRC tools, show completion
 					if toolName != "send_irc_message" {
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
-						ia.ircConn.Privmsg(ia.channel, summary)
+						ia.ircConn.Privmsg(channel, summary)
 					}
 				}
 			}
@@ -298,11 +299,11 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message string) 
 		}
 	}
 
-	log.Printf("Agent finished processing message from %s", sender)
+	log.Printf("Agent finished processing message from %s in %s", sender, channel)
 }
 
 // handleCommand processes IRC commands sent to the agent
-func (ia *IRCAgent) handleCommand(sender, message string) {
+func (ia *IRCAgent) handleCommand(sender, message, sourceChannel string) {
 	// Parse the command and arguments
 	parts := strings.Fields(message)
 	if len(parts) == 0 {
@@ -317,46 +318,46 @@ func (ia *IRCAgent) handleCommand(sender, message string) {
 	switch command {
 	case "/join":
 		if len(args) < 1 {
-			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /join #channel", sender))
+			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /join #channel", sender))
 			return
 		}
 		channel := args[0]
 		ia.ircConn.Join(channel)
 		log.Printf("Joining channel %s (requested by %s)", channel, sender)
-		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Joining %s", sender, channel))
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Joining %s", sender, channel))
 
 	case "/part":
 		if len(args) < 1 {
-			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /part #channel", sender))
+			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /part #channel", sender))
 			return
 		}
 		channel := args[0]
 		ia.ircConn.Part(channel)
 		log.Printf("Leaving channel %s (requested by %s)", channel, sender)
-		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Leaving %s", sender, channel))
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Leaving %s", sender, channel))
 
 	case "/nick":
 		if len(args) < 1 {
-			ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Usage: /nick newnick", sender))
+			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /nick newnick", sender))
 			return
 		}
 		newNick := args[0]
 		ia.ircConn.Nick(newNick)
 		log.Printf("Changing nick to %s (requested by %s)", newNick, sender)
-		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Changing nick to %s", sender, newNick))
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Changing nick to %s", sender, newNick))
 
 	default:
-		ia.ircConn.Privmsg(ia.channel, fmt.Sprintf("%s: Unknown command: %s. Available commands: /join, /part, /nick", sender, command))
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Unknown command: %s. Available commands: /join, /part, /nick", sender, command))
 	}
 }
 
 // sendToIRC sends a message to IRC, splitting if necessary for length limits
-func (ia *IRCAgent) sendToIRC(message string) {
+func (ia *IRCAgent) sendToIRC(message, channel string) {
 	// IRC message limit is typically around 512 bytes, but we'll use 400 to be safe
 	const maxLen = 400
 
 	if len(message) <= maxLen {
-		ia.ircConn.Privmsg(ia.channel, message)
+		ia.ircConn.Privmsg(channel, message)
 		return
 	}
 
@@ -381,7 +382,7 @@ func (ia *IRCAgent) sendToIRC(message string) {
 			}
 		}
 
-		ia.ircConn.Privmsg(ia.channel, message[:end])
+		ia.ircConn.Privmsg(channel, message[:end])
 		message = message[end:]
 		if len(message) > 0 && message[0] == ' ' {
 			message = message[1:] // Skip leading space
