@@ -245,7 +245,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 
 	// Run the agent with the message
 	runConfig := agent.RunConfig{}
-	events := ia.runner.Run(ctx, sender, sessionID, content, runConfig)
+	events := ia.runner.Run(ctx, channel, sessionID, content, runConfig)
 
 	// Process the events
 	for event, err := range events {
