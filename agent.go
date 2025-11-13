@@ -125,10 +125,10 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 
 	// Create MCP toolset for deno-mcp server
 	// This connects to the deno-mcp MCP server which provides TypeScript/JavaScript code execution
-	// Using minimal permissions - only read/write to /tmp for code execution
+	// Running with no filesystem permissions - code executes in memory only
 	denoMCPToolset, err := mcptoolset.New(mcptoolset.Config{
 		Transport: &mcp.CommandTransport{
-			Command: exec.Command("deno", "run", "--allow-read=/tmp", "--allow-write=/tmp", "jsr:@cong/mcp-deno"),
+			Command: exec.Command("deno", "run", "jsr:@cong/mcp-deno"),
 		},
 	})
 	if err != nil {
