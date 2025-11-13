@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/thoj/go-ircevent"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -21,6 +23,7 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/tool/mcptoolset"
 	"google.golang.org/genai"
 )
 
@@ -120,6 +123,18 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
 	}
 
+	// Create MCP toolset for deno-mcp server
+	// This connects to the deno-mcp MCP server which provides TypeScript/JavaScript code execution
+	// Running with no filesystem permissions - code executes in memory only
+	denoMCPToolset, err := mcptoolset.New(mcptoolset.Config{
+		Transport: &mcp.CommandTransport{
+			Command: exec.Command("deno", "run", "jsr:@cong/mcp-deno"),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deno-mcp toolset: %w", err)
+	}
+
 	// Create ADK agent
 	agent, err := llmagent.New(llmagent.Config{
 		Name:  "irc_agent",
@@ -130,9 +145,13 @@ Your role is to assist users with their questions and engage in friendly convers
 When users ask you questions or mention you, provide helpful and concise responses.
 Your responses are automatically sent to the IRC channel, so just respond naturally.
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
-You have access to tools that will be displayed to users when used.`, channel),
+You have access to tools that will be displayed to users when used.
+You can execute TypeScript/JavaScript code using the MCP tools provided by deno-mcp when users ask you to run code or perform calculations.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
+		},
+		Toolsets: []tool.Toolset{
+			denoMCPToolset,
 		},
 	})
 	if err != nil {
