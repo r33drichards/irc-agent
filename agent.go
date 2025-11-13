@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
@@ -66,6 +67,63 @@ func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageP
 	}
 }
 
+// ExecuteDenoCodeParams defines the input parameters for executing Deno code
+type ExecuteDenoCodeParams struct {
+	Code        string   `json:"code" jsonschema:"The TypeScript or JavaScript code to execute"`
+	Permissions []string `json:"permissions,omitempty" jsonschema:"Optional Deno permissions (e.g., --allow-net, --allow-read)"`
+}
+
+// ExecuteDenoCodeResults defines the output of executing Deno code
+type ExecuteDenoCodeResults struct {
+	Status       string `json:"status"`
+	Output       string `json:"output,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+}
+
+// DenoExecutorHandler handles Deno code execution
+type DenoExecutorHandler struct {
+	mu sync.Mutex
+}
+
+// ExecuteCode executes TypeScript/JavaScript code using Deno
+func (h *DenoExecutorHandler) ExecuteCode(ctx tool.Context, params ExecuteDenoCodeParams) ExecuteDenoCodeResults {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Build Deno command with permissions
+	args := []string{"eval"}
+
+	// Add permissions if specified
+	if len(params.Permissions) > 0 {
+		args = append(args, params.Permissions...)
+	} else {
+		// Default permissions for safety
+		args = append(args, "--allow-net", "--allow-read=/tmp", "--allow-write=/tmp")
+	}
+
+	// Add the code to execute
+	args = append(args, params.Code)
+
+	// Create command
+	cmd := exec.Command("deno", args...)
+
+	// Capture output
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return ExecuteDenoCodeResults{
+			Status:       "error",
+			Output:       string(output),
+			ErrorMessage: fmt.Sprintf("Execution failed: %v", err),
+		}
+	}
+
+	return ExecuteDenoCodeResults{
+		Status: "success",
+		Output: string(output),
+	}
+}
+
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
 	agent          agent.Agent
@@ -120,6 +178,21 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
 	}
 
+	// Create Deno executor handler
+	denoHandler := &DenoExecutorHandler{}
+
+	// Create Deno code execution tool using functiontool
+	denoTool, err := functiontool.New(
+		functiontool.Config{
+			Name:        "execute_deno_code",
+			Description: "Executes TypeScript or JavaScript code securely using Deno runtime. Use this tool to run code snippets, perform calculations, or test scripts. The code runs in an isolated subprocess with configurable permissions.",
+		},
+		denoHandler.ExecuteCode,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Deno tool: %w", err)
+	}
+
 	// Create ADK agent
 	agent, err := llmagent.New(llmagent.Config{
 		Name:  "irc_agent",
@@ -130,9 +203,11 @@ Your role is to assist users with their questions and engage in friendly convers
 When users ask you questions or mention you, provide helpful and concise responses.
 Your responses are automatically sent to the IRC channel, so just respond naturally.
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
-You have access to tools that will be displayed to users when used.`, channel),
+You have access to tools that will be displayed to users when used.
+You can execute TypeScript/JavaScript code using the execute_deno_code tool when users ask you to run code or perform calculations.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
+			denoTool,
 		},
 	})
 	if err != nil {
