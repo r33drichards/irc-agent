@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -66,6 +68,104 @@ func (h *IRCMessageHandler) SendMessage(ctx tool.Context, params SendIRCMessageP
 	}
 }
 
+// ExecuteTypeScriptParams defines the input parameters for executing TypeScript/JavaScript code
+type ExecuteTypeScriptParams struct {
+	Code string `json:"code" jsonschema:"The TypeScript or JavaScript code to execute"`
+}
+
+// ExecuteTypeScriptResults defines the output of TypeScript/JavaScript execution
+type ExecuteTypeScriptResults struct {
+	Status       string `json:"status"`
+	Output       string `json:"output"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	ExitCode     int    `json:"exit_code"`
+}
+
+// TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
+type TypeScriptExecutor struct {
+	mu sync.Mutex
+}
+
+// Execute runs TypeScript/JavaScript code using Deno
+func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptParams) ExecuteTypeScriptResults {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Create a temporary directory for script isolation
+	tempDir, err := os.MkdirTemp("", "deno-exec-")
+	if err != nil {
+		return ExecuteTypeScriptResults{
+			Status:       "error",
+			ErrorMessage: fmt.Sprintf("Failed to create temp directory: %v", err),
+			ExitCode:     -1,
+		}
+	}
+	defer os.RemoveAll(tempDir) // Clean up
+
+	// Write the code to a temporary file
+	scriptPath := filepath.Join(tempDir, "script.ts")
+	err = os.WriteFile(scriptPath, []byte(params.Code), 0600)
+	if err != nil {
+		return ExecuteTypeScriptResults{
+			Status:       "error",
+			ErrorMessage: fmt.Sprintf("Failed to write script file: %v", err),
+			ExitCode:     -1,
+		}
+	}
+
+	// Execute the script using Deno
+	cmd := exec.Command("deno", "run", "--no-check", "--allow-all", scriptPath)
+	cmd.Dir = tempDir
+
+	// Capture stdout and stderr
+	output, err := cmd.CombinedOutput()
+	outputText := string(output)
+
+	if err != nil {
+		// Check if it's an exit error
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode := exitErr.ExitCode()
+
+			// Check for permission errors
+			if strings.Contains(outputText, "PermissionDenied") || strings.Contains(outputText, "permission denied") {
+				return ExecuteTypeScriptResults{
+					Status:       "error",
+					Output:       outputText,
+					ErrorMessage: "Permission denied. The server is configured with --allow-all, but the code may have additional permission requirements.",
+					ExitCode:     exitCode,
+				}
+			}
+
+			return ExecuteTypeScriptResults{
+				Status:       "error",
+				Output:       outputText,
+				ErrorMessage: fmt.Sprintf("Execution failed with exit code %d", exitCode),
+				ExitCode:     exitCode,
+			}
+		}
+
+		// Other execution errors (e.g., Deno not found)
+		return ExecuteTypeScriptResults{
+			Status:       "error",
+			Output:       outputText,
+			ErrorMessage: fmt.Sprintf("Execution error: %v", err),
+			ExitCode:     -1,
+		}
+	}
+
+	// Successful execution
+	result := outputText
+	if result == "" {
+		result = "Code executed successfully (no output)"
+	}
+
+	return ExecuteTypeScriptResults{
+		Status:   "success",
+		Output:   result,
+		ExitCode: 0,
+	}
+}
+
 // IRCAgent wraps the ADK agent with IRC functionality
 type IRCAgent struct {
 	agent          agent.Agent
@@ -120,6 +220,21 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
 	}
 
+	// Create TypeScript executor
+	tsExecutor := &TypeScriptExecutor{}
+
+	// Create TypeScript execution tool using functiontool
+	tsTool, err := functiontool.New(
+		functiontool.Config{
+			Name:        "execute_typescript",
+			Description: "Execute TypeScript or JavaScript code using Deno. The code runs in an isolated environment with full permissions (--allow-all). Returns the output of the execution.",
+		},
+		tsExecutor.Execute,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TypeScript execution tool: %w", err)
+	}
+
 	// Create ADK agent
 	agent, err := llmagent.New(llmagent.Config{
 		Name:  "irc_agent",
@@ -130,9 +245,11 @@ Your role is to assist users with their questions and engage in friendly convers
 When users ask you questions or mention you, provide helpful and concise responses.
 Your responses are automatically sent to the IRC channel, so just respond naturally.
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
-You have access to tools that will be displayed to users when used.`, channel),
+You have access to tools that will be displayed to users when used.
+You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
+			tsTool,
 		},
 	})
 	if err != nil {
