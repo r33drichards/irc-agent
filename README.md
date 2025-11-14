@@ -170,7 +170,7 @@ Example IRC interactions:
 
 To test the TypeScript executor directly:
 ```bash
-go run test_ts_executor.go
+go run -tags test_executor test_ts_executor.go agent.go
 ```
 
 ### Change Trigger Conditions

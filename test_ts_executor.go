@@ -1,3 +1,5 @@
+// +build test_executor
+
 package main
 
 import (
