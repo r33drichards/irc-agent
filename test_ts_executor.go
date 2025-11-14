@@ -45,19 +45,15 @@ throw new Error("This is a test error");
 	// Test 4: TypeScript features
 	fmt.Println("Test 4: TypeScript features")
 	result4 := executor.Execute(tool.Context{}, ExecuteTypeScriptParams{
-		Code: `
-interface Person {
-  name: string;
-  age: number;
-}
-
-const person: Person = {
-  name: "Alice",
-  age: 30
-};
-
-console.log(\`\${person.name} is \${person.age} years old\`);
-`,
+		Code: "interface Person {\n" +
+			"  name: string;\n" +
+			"  age: number;\n" +
+			"}\n\n" +
+			"const person: Person = {\n" +
+			"  name: \"Alice\",\n" +
+			"  age: 30\n" +
+			"};\n\n" +
+			"console.log(`${person.name} is ${person.age} years old`);\n",
 	})
 	fmt.Printf("Status: %s\n", result4.Status)
 	fmt.Printf("Output: %s\n", result4.Output)
