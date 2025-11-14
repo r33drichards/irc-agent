@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
-	"github.com/thoj/go-ircevent"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	irc "github.com/thoj/go-ircevent"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/artifact"
@@ -20,6 +22,8 @@ import (
 	"google.golang.org/adk/server/restapi/services"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/mcptoolset"
+
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
 )
@@ -120,10 +124,23 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
 	}
 
+	denoToolSet, err := mcptoolset.New(mcptoolset.Config{
+		Transport: &mcp.CommandTransport{Command: exec.Command(
+			"deno", 
+			"run",
+			"jsr:@cong/mcp-deno",
+		)},
+	})
+
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deno tool: %w", err)
+	}
+
 	// Create ADK agent
 	agent, err := llmagent.New(llmagent.Config{
-		Name:  "irc_agent",
-		Model: model,
+		Name:        "irc_agent",
+		Model:       model,
 		Description: "An intelligent IRC bot that listens to messages and responds to users in the IRC channel.",
 		Instruction: fmt.Sprintf(`You are a helpful IRC bot in the %s channel.
 Your role is to assist users with their questions and engage in friendly conversation.
@@ -133,6 +150,9 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
 You have access to tools that will be displayed to users when used.`, channel),
 		Tools: []tool.Tool{
 			ircTool,
+		},
+		Toolsets: []tool.Toolset{
+			denoToolSet,
 		},
 	})
 	if err != nil {
@@ -187,8 +207,6 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 		if e.Nick != "agent" {
 			go ia.processMessage(ctx, sender, message, channel)
 		}
-
-
 	})
 
 	// Connect to IRC server
