@@ -6,6 +6,7 @@ An intelligent IRC bot powered by Google's Agent Development Kit (ADK) and Gemin
 
 - **AI-Powered Responses**: Uses Google Gemini to generate intelligent responses to IRC messages
 - **Custom IRC Tool**: Built-in tool for sending messages to IRC channels
+- **TypeScript/JavaScript Execution**: Execute TypeScript or JavaScript code using Deno with full permissions
 - **Dual Mode Operation**:
   - IRC mode: Runs as a traditional IRC bot
   - Web mode: Provides a web interface for testing and development
@@ -16,6 +17,7 @@ An intelligent IRC bot powered by Google's Agent Development Kit (ADK) and Gemin
 - Go 1.24.4 or later
 - Google API Key (get from [Google AI Studio](https://aistudio.google.com/app/apikey))
 - IRC server access with NickServ authentication
+- Deno runtime (for TypeScript execution tool) - Install from [deno.land](https://deno.land)
 
 ## Setup
 
@@ -89,12 +91,18 @@ Access the web interface at [http://localhost:8080](http://localhost:8080) to ch
    - Thread-safe message sending with mutex locks
    - Returns structured response with status and metadata
 
-2. **IRCAgent**: Wraps the ADK agent with IRC functionality
+2. **TypeScriptExecutor**: Custom ADK tool for executing TypeScript/JavaScript code
+   - Executes code in isolated temporary directories
+   - Uses Deno runtime with `--allow-all` permissions
+   - Returns stdout/stderr with proper error handling
+   - Automatic cleanup of temporary files
+
+3. **IRCAgent**: Wraps the ADK agent with IRC functionality
    - Manages IRC connection lifecycle
    - Routes IRC messages to the ADK agent
    - Processes agent responses and sends them to IRC
 
-3. **ADK Integration**: Uses Google's Agent Development Kit
+4. **ADK Integration**: Uses Google's Agent Development Kit
    - Gemini 2.0 Flash model for fast responses
    - Custom instructions for IRC-appropriate responses
    - Tool-based architecture for extensibility
@@ -126,13 +134,43 @@ Your role is to assist users with their questions and engage in friendly convers
 
 ### Add More Tools
 
-Add additional tools to the agent's `Tools` array in `agent.go:90`:
+Add additional tools to the agent's `Tools` array. The agent currently includes:
+
+1. **send_irc_message**: Sends messages to IRC channels
+2. **execute_typescript**: Executes TypeScript/JavaScript code using Deno
+
+To add more tools, follow the pattern in `agent.go`:
 
 ```go
 Tools: []tool.Tool{
     ircTool,
+    tsTool,
     // Add more tools here
 },
+```
+
+### Using the TypeScript Execution Tool
+
+The agent can execute TypeScript/JavaScript code using Deno. Users can ask the bot to:
+- Perform calculations
+- Run data transformations
+- Test code snippets
+- Execute algorithms
+
+Example IRC interactions:
+```
+<user> agent, calculate the sum of numbers from 1 to 100
+<agent> [Using tool: execute_typescript]
+<agent> The sum is 5050
+
+<user> agent, write a function to check if a number is prime
+<agent> [Using tool: execute_typescript]
+<agent> Here's a prime checker function... [output]
+```
+
+To test the TypeScript executor directly:
+```bash
+go run -tags test_executor test_ts_executor.go agent.go
 ```
 
 ### Change Trigger Conditions
