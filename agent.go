@@ -198,31 +198,31 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	cmd.Dir = tempDir
 
 	// Capture stdout and stderr
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, execErr := cmd.CombinedOutput()
+	if execErr != nil {
 		// command can exit with non-zero code and that would be
 		// an error technically, but not an error logically
-		log.Printf("Deno execution error: %v", err)
+		log.Printf("Deno execution error: %v", execErr)
 	}
 	outputText := string(output)
 
 	// Upload full result to S3 and get signed URL
-	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), outputText)
-	if err != nil {
-		log.Printf("Warning: Failed to upload result to S3: %v", err)
+	signedURL, uploadErr := uploadToS3AndGetSignedURL(context.Background(), outputText)
+	if uploadErr != nil {
+		log.Printf("Warning: Failed to upload result to S3: %v", uploadErr)
 		// Continue without signed URL - don't fail the execution
-		panic("Failed to upload result to S3")
+		signedURL = "" // Clear the signed URL on error
+	} else {
+		// Send message to IRC with signed URL of result (only if upload succeeded)
+		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
+		e.SendMessage(ctx, SendIRCMessageParams{
+			Message: message,
+			Channel: e.Channel,
+		})
 	}
-
-	// Send message to IRC with signed URL of result
-	message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
-	e.SendMessage(ctx, SendIRCMessageParams{
-		Message: message,
-		Channel: e.Channel,
-	})
-	if err != nil {
+	if execErr != nil {
 		// Check if it's an exit error
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := execErr.(*exec.ExitError); ok {
 			exitCode := exitErr.ExitCode()
 
 			// Check for permission errors
@@ -247,7 +247,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		return ExecuteTypeScriptResults{
 			Status:       "error",
 			Output:       outputText,
-			ErrorMessage: fmt.Sprintf("Execution error: %v", err),
+			ErrorMessage: fmt.Sprintf("Execution error: %v", execErr),
 			ExitCode:     -1,
 		}
 	}
