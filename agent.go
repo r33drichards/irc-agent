@@ -565,16 +565,26 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					toolName := part.FunctionResponse.Name
 					log.Printf("Tool %s responded", toolName)
 
-					// For execute_typescript, send completion message with output URL
+					// For execute_typescript, send completion message with all URLs
 					if toolName == "execute_typescript" {
-						summary := fmt.Sprintf("[Tool %s completed]", toolName)
+						// Extract URLs from response
+						codeURL, hasCodeURL := part.FunctionResponse.Response["code_url"].(string)
+						outputURL, hasOutputURL := part.FunctionResponse.Response["output_url"].(string)
+						signedURL, hasSignedURL := part.FunctionResponse.Response["signed_url"].(string)
 						
-						// Add output URL if available
-						if outputURL, ok := part.FunctionResponse.Response["output_url"].(string); ok && outputURL != "" {
-							summary = fmt.Sprintf("[Tool %s completed] %s", toolName, outputURL)
+						// Send separate messages for each URL
+						if hasCodeURL && codeURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Code: %s", codeURL))
+						}
+						if hasOutputURL && outputURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Output: %s", outputURL))
+						}
+						if hasSignedURL && signedURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Full results: %s", signedURL))
 						}
 						
-						ia.ircConn.Privmsg(channel, summary)
+						// Send completion message
+						ia.ircConn.Privmsg(channel, fmt.Sprintf("[Tool %s completed]", toolName))
 					} else if toolName != "send_irc_message" {
 						// For non-IRC tools, show completion
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
