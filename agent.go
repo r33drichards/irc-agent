@@ -488,7 +488,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 	}
 
 	// Create a prompt for the agent that includes the channel context
-	prompt := fmt.Sprintf("User %s in channel %s said: %s\n\nIMPORTANT: When responding, you MUST use the send_irc_message tool with channel parameter set to: %s", sender, channel, message, channel)
+	prompt := fmt.Sprintf("User %s in channel %s said: %s\n", sender, channel, message)
 
 	log.Printf("Processing message from %s in %s: %s", sender, channel, message)
 
