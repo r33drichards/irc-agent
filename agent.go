@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,9 +92,10 @@ type ExecuteTypeScriptResults struct {
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
 type TypeScriptExecutor struct {
-	mu          sync.Mutex
-	SendMessage func(ctx tool.Context, params SendIRCMessageParams) SendIRCMessageResults
-	Channel     string
+	mu           sync.Mutex
+	SendMessage  func(ctx tool.Context, params SendIRCMessageParams) SendIRCMessageResults
+	Channel      string
+	URLShortener *URLShortener
 }
 
 // uploadToS3AndGetSignedURL uploads content to S3 and returns a presigned URL
@@ -176,8 +178,16 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	if err != nil {
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
 	} else {
-		// Send message to IRC with signed URL of code
-		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", signedURL)
+		// Shorten the signed URL
+		var displayURL string
+		if e.URLShortener != nil {
+			displayURL = e.URLShortener.GetShortURL(signedURL)
+		} else {
+			displayURL = signedURL
+		}
+
+		// Send message to IRC with URL of code
+		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", displayURL)
 		e.SendMessage(ctx, SendIRCMessageParams{
 			Message: message,
 			Channel: e.Channel,
@@ -213,8 +223,16 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		// Continue without signed URL - don't fail the execution
 		signedURL = "" // Clear the signed URL on error
 	} else {
-		// Send message to IRC with signed URL of result (only if upload succeeded)
-		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
+		// Shorten the signed URL
+		var displayURL string
+		if e.URLShortener != nil {
+			displayURL = e.URLShortener.GetShortURL(signedURL)
+		} else {
+			displayURL = signedURL
+		}
+
+		// Send message to IRC with URL of result (only if upload succeeded)
+		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", displayURL)
 		e.SendMessage(ctx, SendIRCMessageParams{
 			Message: message,
 			Channel: e.Channel,
@@ -285,7 +303,7 @@ type IRCAgent struct {
 }
 
 // NewIRCAgent creates a new IRC agent with ADK integration
-func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
+func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, error) {
 	// Get environment variables
 	server := os.Getenv("SERVER")
 	channel := os.Getenv("CHANNEL")
@@ -330,8 +348,9 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 
 	// Create TypeScript executor
 	tsExecutor := &TypeScriptExecutor{
-		SendMessage: ircHandler.SendMessage,
-		Channel:     channel,
+		SendMessage:  ircHandler.SendMessage,
+		Channel:      channel,
+		URLShortener: urlShortener,
 	}
 
 	// Create TypeScript execution tool using functiontool
@@ -660,14 +679,105 @@ func (ia *IRCAgent) sendToIRC(message, channel string) {
 	}
 }
 
+// URLShortener provides URL shortening functionality with HTTP serving
+type URLShortener struct {
+	mu       sync.RWMutex
+	urlMap   map[string]string // maps short ID to original URL
+	idLength int               // length of the short ID
+	host     string            // the base URL for short links (e.g., "http://example.com:3000")
+}
+
+// NewURLShortener creates a new URL shortener instance
+func NewURLShortener(host string) *URLShortener {
+	return &URLShortener{
+		urlMap:   make(map[string]string),
+		idLength: 8,
+		host:     host,
+	}
+}
+
+// Shorten takes a URL (including signed URLs) and returns a short ID
+func (us *URLShortener) Shorten(url string) string {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	// Generate a short ID from the URL using SHA256
+	hash := sha256.Sum256([]byte(url))
+	shortID := hex.EncodeToString(hash[:])[:us.idLength]
+
+	// Store the mapping
+	us.urlMap[shortID] = url
+
+	log.Printf("Shortened URL: %s -> %s", shortID, url)
+	return shortID
+}
+
+// GetShortURL returns the full short URL for a given original URL
+func (us *URLShortener) GetShortURL(url string) string {
+	shortID := us.Shorten(url)
+	return fmt.Sprintf("%s/%s", us.host, shortID)
+}
+
+// Serve starts the HTTP server on the specified port
+func (us *URLShortener) Serve(port string) error {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Extract the ID from the path
+		id := strings.TrimPrefix(r.URL.Path, "/")
+
+		// Handle root path
+		if id == "" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "URL Shortener Service\n")
+			fmt.Fprintf(w, "Usage: /<short-id>\n")
+			return
+		}
+
+		// Look up the original URL
+		us.mu.RLock()
+		originalURL, exists := us.urlMap[id]
+		us.mu.RUnlock()
+
+		if !exists {
+			http.NotFound(w, r)
+			log.Printf("Short ID not found: %s", id)
+			return
+		}
+
+		// 301 redirect to the original URL
+		log.Printf("Redirecting %s -> %s", id, originalURL)
+		http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
+	})
+
+	addr := ":" + port
+	log.Printf("URL Shortener serving on %s", addr)
+	return http.ListenAndServe(addr, nil)
+}
+
 func main() {
 	ctx := context.Background()
 
-	// Create IRC Agent
-	ircAgent, err := NewIRCAgent(ctx)
+	// Get URL shortener host from environment (defaults to Railway production URL)
+	shortenerHost := os.Getenv("SHORTENER_HOST")
+	if shortenerHost == "" {
+		shortenerHost = "https://irc-agent-production-09eb.up.railway.app"
+	}
+
+	// Create URL Shortener first
+	urlShortener := NewURLShortener(shortenerHost)
+
+	// Create IRC Agent with URL Shortener
+	ircAgent, err := NewIRCAgent(ctx, urlShortener)
 	if err != nil {
 		log.Fatalf("Failed to create IRC agent: %v", err)
 	}
+
+	// Start URL Shortener on port 3000
+	go func() {
+		log.Println("Starting URL Shortener on port 3000...")
+		if err := urlShortener.Serve("3000"); err != nil {
+			log.Fatalf("URL Shortener failed: %v", err)
+		}
+	}()
 
 	// Check if we should run in web mode or IRC mode
 	if len(os.Args) > 1 && os.Args[1] == "web" {
