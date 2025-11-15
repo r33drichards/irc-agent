@@ -223,8 +223,19 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		fullResult = "Code executed successfully (no output)"
 	}
 
-	// Upload full result to S3 and get signed URL
-	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	// Create formatted content with both code and output
+	formattedContent := fmt.Sprintf(`========================================
+EXECUTED CODE:
+========================================
+%s
+
+========================================
+OUTPUT:
+========================================
+%s`, params.Code, fullResult)
+
+	// Upload formatted content (code + output) to S3 and get signed URL
+	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), formattedContent)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
