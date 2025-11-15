@@ -543,8 +543,19 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 
 					// Don't send notification for send_irc_message tool to avoid clutter
 					if toolName != "send_irc_message" {
-						// For execute_typescript, we'll add the code URL after execution
 						summary := fmt.Sprintf("[Using tool: %s]", toolName)
+						
+						// For execute_typescript, try to extract and upload the code to get URL
+						if toolName == "execute_typescript" {
+							if codeArg, ok := part.FunctionCall.Args["code"].(string); ok && codeArg != "" {
+								// Upload the code to S3 to get a URL
+								codeURL, err := uploadToS3AndGetSignedURL(ctx, codeArg)
+								if err == nil && codeURL != "" {
+									summary = fmt.Sprintf("[Using tool: %s] %s", toolName, codeURL)
+								}
+							}
+						}
+						
 						ia.ircConn.Privmsg(channel, summary)
 					}
 				}
@@ -554,24 +565,15 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					toolName := part.FunctionResponse.Name
 					log.Printf("Tool %s responded", toolName)
 
-					// For execute_typescript, automatically send the S3 URLs
+					// For execute_typescript, send completion message with output URL
 					if toolName == "execute_typescript" {
-						// Send code URL if available
-						if codeURL, ok := part.FunctionResponse.Response["code_url"].(string); ok && codeURL != "" {
-							ia.ircConn.Privmsg(channel, fmt.Sprintf("Code: %s", codeURL))
-						}
-						
-						// Send output URL if available
-						if outputURL, ok := part.FunctionResponse.Response["output_url"].(string); ok && outputURL != "" {
-							ia.ircConn.Privmsg(channel, fmt.Sprintf("Output: %s", outputURL))
-						}
-						
-						// Send combined results URL if available
-						if signedURL, ok := part.FunctionResponse.Response["signed_url"].(string); ok && signedURL != "" {
-							ia.ircConn.Privmsg(channel, fmt.Sprintf("Full results: %s", signedURL))
-						}
-						
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
+						
+						// Add output URL if available
+						if outputURL, ok := part.FunctionResponse.Response["output_url"].(string); ok && outputURL != "" {
+							summary = fmt.Sprintf("[Tool %s completed] %s", toolName, outputURL)
+						}
+						
 						ia.ircConn.Privmsg(channel, summary)
 					} else if toolName != "send_irc_message" {
 						// For non-IRC tools, show completion
