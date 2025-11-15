@@ -223,8 +223,19 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		fullResult = "Code executed successfully (no output)"
 	}
 
-	// Upload full result to S3 and get signed URL
-	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	// Create formatted content with both code and output
+	formattedContent := fmt.Sprintf(`========================================
+EXECUTED CODE:
+========================================
+%s
+
+========================================
+OUTPUT:
+========================================
+%s`, params.Code, fullResult)
+
+	// Upload formatted content (code + output) to S3 and get signed URL
+	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), formattedContent)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
@@ -235,17 +246,12 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		}
 	}
 
-	// Truncate output if it's too large to avoid sending excessive tokens to LLM
-	// Full output is always available via the signed URL
-	const maxOutputLen = 500
-	truncatedOutput := fullResult
-	if len(fullResult) > maxOutputLen {
-		truncatedOutput = fullResult[:maxOutputLen] + fmt.Sprintf("\n... (output truncated, %d more bytes available via signed_url)", len(fullResult)-maxOutputLen)
-	}
+	// Return the signed URL as the output message
+	outputMessage := fmt.Sprintf("Code execution results: %s", signedURL)
 
 	return ExecuteTypeScriptResults{
 		Status:    "success",
-		Output:    truncatedOutput,
+		Output:    outputMessage,
 		ExitCode:  0,
 		SignedURL: signedURL,
 	}
