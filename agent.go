@@ -174,7 +174,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	// Upload code to S3 and get signed URL
 	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
 	if err != nil {
-		log.Printf("Warning: Failed to upload code to S3: %v", err)
+		log.Printf("Error: Failed to upload code to S3: %v", err)
 	} else {
 		// Send message to IRC with signed URL of code
 		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", signedURL)
