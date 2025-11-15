@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	irc "github.com/thoj/go-ircevent"
+	anthropicmodel "github.com/r33drichards/irc-agent/model/anthropic"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/artifact"
 	"google.golang.org/adk/memory"
-	"google.golang.org/adk/model/gemini"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
@@ -35,24 +35,22 @@ func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, er
 	// Get environment variables
 	server := os.Getenv("SERVER")
 	channel := os.Getenv("CHANNEL")
-	apiKey := os.Getenv("GOOGLE_API_KEY")
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 
 	if server == "" || channel == "" {
 		return nil, fmt.Errorf("SERVER and CHANNEL environment variables are required")
 	}
 
 	if apiKey == "" {
-		return nil, fmt.Errorf("GOOGLE_API_KEY environment variable is required")
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
 	}
 
 	// Create IRC connection
 	ircConn := irc.IRC("agent", "agent")
 	ircConn.UseTLS = false
 
-	// Create Gemini model
-	model, err := gemini.NewModel(ctx, "gemini-2.5-flash-lite", &genai.ClientConfig{
-		APIKey: apiKey,
-	})
+	// Create Anthropic model (Claude Haiku 4.5)
+	model, err := anthropicmodel.NewModel(ctx, "claude-haiku-4-5", apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
