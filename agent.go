@@ -114,7 +114,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	// Execute the script using Deno
-	cmd := exec.Command("deno", "run", "--no-check", scriptPath)
+	cmd := exec.Command("deno", "run", "--no-check", "--allow-env=\"AWS_*\"", scriptPath)
 	cmd.Dir = tempDir
 
 	// Capture stdout and stderr
