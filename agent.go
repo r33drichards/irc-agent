@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -9,7 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/thoj/go-ircevent"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -79,11 +86,59 @@ type ExecuteTypeScriptResults struct {
 	Output       string `json:"output"`
 	ErrorMessage string `json:"error_message,omitempty"`
 	ExitCode     int    `json:"exit_code"`
+	SignedURL    string `json:"signed_url,omitempty"`
 }
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
 type TypeScriptExecutor struct {
 	mu sync.Mutex
+}
+
+// uploadToS3AndGetSignedURL uploads content to S3 and returns a presigned URL
+func uploadToS3AndGetSignedURL(ctx context.Context, content string) (string, error) {
+	const bucketName = "robust-cicada"
+	const region = "us-west-2"
+
+	// Load AWS configuration
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return "", fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Create S3 client
+	s3Client := s3.NewFromConfig(cfg)
+
+	// Generate a unique key based on timestamp and content hash
+	hash := sha256.Sum256([]byte(content))
+	hashStr := hex.EncodeToString(hash[:])[:16]
+	timestamp := time.Now().Unix()
+	key := fmt.Sprintf("code-results/%d-%s.txt", timestamp, hashStr)
+
+	// Upload content to S3
+	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucketName),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader([]byte(content)),
+		ContentType: aws.String("text/plain"),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to upload to S3: %w", err)
+	}
+
+	// Create S3 presign client
+	presignClient := s3.NewPresignClient(s3Client)
+
+	// Generate presigned URL (valid for 24 hours)
+	presignResult, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(24*time.Hour))
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+
+	return presignResult.URL, nil
 }
 
 // Execute runs TypeScript/JavaScript code using Deno
@@ -168,10 +223,23 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		result = "Code executed successfully (no output)"
 	}
 
+	// Upload result to S3 and get signed URL
+	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), result)
+	if err != nil {
+		log.Printf("Warning: Failed to upload result to S3: %v", err)
+		// Continue without signed URL - don't fail the execution
+		return ExecuteTypeScriptResults{
+			Status:   "success",
+			Output:   result,
+			ExitCode: 0,
+		}
+	}
+
 	return ExecuteTypeScriptResults{
-		Status:   "success",
-		Output:   result,
-		ExitCode: 0,
+		Status:    "success",
+		Output:    result,
+		ExitCode:  0,
+		SignedURL: signedURL,
 	}
 }
 
@@ -256,7 +324,13 @@ Your responses are automatically sent to the IRC channel, so just respond natura
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
 You have access to tools that will be displayed to users when used.
 You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.
-the code executed as deno witht the following perms 
+
+IMPORTANT: After code execution, the results are automatically uploaded to S3 and a signed URL is generated.
+When the execute_typescript tool returns successfully, it will include a "signed_url" field in the response.
+You MUST share this signed URL with the user in your response so they can access the full output.
+The signed URL is valid for 24 hours and provides access to the complete execution output.
+
+the code executed as deno witht the following perms
 
 	// Execute the script using Deno
 	cmd := exec.Command(
@@ -274,7 +348,7 @@ the code executed as deno witht the following perms
 
 
 	your environment comes with aws credentials, with the following access permissions
-	
+
 	you are configured with full access to the s3 bucket s3://robust-cicada
 
 `, channel),
