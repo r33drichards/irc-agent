@@ -421,7 +421,6 @@ const response = await client.send(command);
 console.log(JSON.stringify(response.Contents, null, 2));
 `, channel),
 		Tools: []tool.Tool{
-			ircTool,
 			tsTool,
 		},
 	})
