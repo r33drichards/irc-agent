@@ -201,6 +201,20 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	output, err := cmd.CombinedOutput()
 	outputText := string(output)
 
+		// Upload full result to S3 and get signed URL
+	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	if err != nil {
+		log.Printf("Warning: Failed to upload result to S3: %v", err)
+		// Continue without signed URL - don't fail the execution
+		panic("Failed to upload result to S3")
+	}
+
+	// Send message to IRC with signed URL of result
+	message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
+	e.SendMessage(ctx, SendIRCMessageParams{
+		Message: message,
+		Channel: e.Channel,
+	})
 	if err != nil {
 		// Check if it's an exit error
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -239,24 +253,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		fullResult = "Code executed successfully (no output)"
 	}
 
-	// Upload full result to S3 and get signed URL
-	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), fullResult)
-	if err != nil {
-		log.Printf("Warning: Failed to upload result to S3: %v", err)
-		// Continue without signed URL - don't fail the execution
-		return ExecuteTypeScriptResults{
-			Status:   "success",
-			Output:   fullResult,
-			ExitCode: 0,
-		}
-	}
 
-	// Send message to IRC with signed URL of result
-	message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
-	e.SendMessage(ctx, SendIRCMessageParams{
-		Message: message,
-		Channel: e.Channel,
-	})
 
 	// Truncate output if it's too large to avoid sending excessive tokens to LLM
 	// Full output is always available via the signed URL
