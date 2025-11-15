@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -200,7 +201,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		"run",
 		"--no-check",
 		"--allow-env=AWS_*,HOME,USERPROFILE,HOMEPATH,HOMEDRIVE,_X_AMZN_TRACE_ID",
-		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
+		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com,localhost:3000",
 		"--allow-sys=osRelease",
 		"--allow-read=.",
 		"--allow-write=.",
@@ -383,11 +384,27 @@ IMPORTANT - Code Execution Results Workflow:
 Note: signed_url is an OUTPUT field, NOT an input parameter to execute_typescript.
 
 Deno Environment & Permissions:
-- Deno runs with: --allow-env="AWS_*", --allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com, --allow-read=., --allow-write=.
+- Deno runs with: --allow-env="AWS_*", --allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com,localhost:3000, --allow-read=., --allow-write=.
 - AWS credentials are available via environment variables
 - Full access to S3 bucket: s3://robust-cicada
 - AWS SDK is available for Deno
 - You can use npm packages with "npm:" prefix (e.g., "npm:@aws-sdk/client-s3@3")
+
+URL Shortening Service:
+- A URL shortener is running at http://localhost:3000
+- Use POST requests to shorten long URLs (especially AWS S3 signed/presigned URLs)
+- IMPORTANT: When users need to access URLs (especially signed URLs from S3), ALWAYS shorten them first
+- This makes URLs much easier to copy, paste, and share in IRC
+- Example use cases: S3 presigned URLs, API endpoints, any long URL a user might need
+
+Example: Shorten a URL using fetch in Deno:
+const longUrl = "https://robust-cicada.s3.us-west-2.amazonaws.com/...very-long-signed-url...";
+const response = await fetch("http://localhost:3000/", {
+  method: "POST",
+  body: longUrl
+});
+const shortUrl = await response.text();
+console.log("Short URL:", shortUrl);
 
 Example: Download file from signed URL using Deno:
 const response = await fetch("SIGNED_URL_HERE");
@@ -737,11 +754,51 @@ func (us *URLShortener) Serve(port string) error {
 		// Extract the ID from the path
 		id := strings.TrimPrefix(r.URL.Path, "/")
 
+		// Handle POST requests for creating short URLs
+		if r.Method == http.MethodPost {
+			if id != "" {
+				http.Error(w, "POST only allowed at root path", http.StatusBadRequest)
+				return
+			}
+
+			// Read the URL from request body
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read request body", http.StatusBadRequest)
+				return
+			}
+			defer r.Body.Close()
+
+			url := strings.TrimSpace(string(body))
+			if url == "" {
+				http.Error(w, "URL cannot be empty", http.StatusBadRequest)
+				return
+			}
+
+			// Create short URL
+			shortURL := us.GetShortURL(url)
+
+			// Return the short URL
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, shortURL)
+			log.Printf("Created short URL via POST: %s", shortURL)
+			return
+		}
+
+		// Handle GET requests for redirects
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		// Handle root path
 		if id == "" {
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "URL Shortener Service\n")
-			fmt.Fprintf(w, "Usage: /<short-id>\n")
+			fmt.Fprintf(w, "Usage:\n")
+			fmt.Fprintf(w, "  GET  /<short-id> - Redirect to original URL\n")
+			fmt.Fprintf(w, "  POST /           - Create short URL (send URL in body)\n")
 			return
 		}
 
