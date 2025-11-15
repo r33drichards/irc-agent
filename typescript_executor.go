@@ -146,7 +146,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		"--allow-env=AWS_*,HOME,USERPROFILE,HOMEPATH,HOMEDRIVE,_X_AMZN_TRACE_ID",
 		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com,localhost:3000",
 		"--allow-sys=osRelease",
-		"--allow-read=.",
+		"--allow-read=.,/root/.cache/deno",
 		"--allow-write=.",
 		scriptPath,
 	)
