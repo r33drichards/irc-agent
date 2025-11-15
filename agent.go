@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/thoj/go-ircevent"
+	irc "github.com/thoj/go-ircevent"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/artifact"
@@ -91,7 +91,9 @@ type ExecuteTypeScriptResults struct {
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
 type TypeScriptExecutor struct {
-	mu sync.Mutex
+	mu          sync.Mutex
+	SendMessage func(ctx tool.Context, params SendIRCMessageParams) SendIRCMessageResults
+	Channel     string
 }
 
 // uploadToS3AndGetSignedURL uploads content to S3 and returns a presigned URL
@@ -168,6 +170,20 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		}
 	}
 
+	// create s3 url of params.Code
+	// Upload code to S3 and get signed URL
+	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	if err != nil {
+		log.Printf("Warning: Failed to upload code to S3: %v", err)
+	} else {
+		// Send message to IRC with signed URL of code
+		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", signedURL)
+		e.SendMessage(ctx, SendIRCMessageParams{
+			Message: message,
+			Channel: e.Channel,
+		})
+	}
+
 	// Execute the script using Deno
 	cmd := exec.Command(
 		"deno",
@@ -224,7 +240,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	// Upload full result to S3 and get signed URL
-	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), fullResult)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
@@ -234,6 +250,13 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 			ExitCode: 0,
 		}
 	}
+
+	// Send message to IRC with signed URL of result
+	message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
+	e.SendMessage(ctx, SendIRCMessageParams{
+		Message: message,
+		Channel: e.Channel,
+	})
 
 	// Truncate output if it's too large to avoid sending excessive tokens to LLM
 	// Full output is always available via the signed URL
@@ -306,7 +329,10 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	}
 
 	// Create TypeScript executor
-	tsExecutor := &TypeScriptExecutor{}
+	tsExecutor := &TypeScriptExecutor{
+		SendMessage: ircHandler.SendMessage,
+		Channel:     channel,
+	}
 
 	// Create TypeScript execution tool using functiontool
 	tsTool, err := functiontool.New(
