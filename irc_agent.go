@@ -333,8 +333,14 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
 
-						// For execute_typescript, extract and display the short_url if present
+						// For execute_typescript, extract and display URLs if present
 						if toolName == "execute_typescript" && part.FunctionResponse.Response != nil {
+							// Display code URL first
+							if codeURL, ok := part.FunctionResponse.Response["code_short_url"].(string); ok && codeURL != "" {
+								codeMessage := fmt.Sprintf("Full code: %s", codeURL)
+								ia.ircConn.Privmsg(channel, codeMessage)
+							}
+							// Display output URL second
 							if shortURL, ok := part.FunctionResponse.Response["short_url"].(string); ok && shortURL != "" {
 								urlMessage := fmt.Sprintf("Full output: %s", shortURL)
 								ia.ircConn.Privmsg(channel, urlMessage)

@@ -33,6 +33,7 @@ type ExecuteTypeScriptResults struct {
 	ExitCode     int    `json:"exit_code"`
 	SignedURL    string `json:"signed_url,omitempty"`
 	ShortURL     string `json:"short_url,omitempty"`
+	CodeShortURL string `json:"code_short_url,omitempty"`
 }
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
@@ -115,12 +116,13 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		}
 	}
 
-	// create s3 url of params.Code
-	// Upload code to S3 and get signed URL (optional - for user reference)
-	// The signed URL for code is not returned in results as it's less commonly needed
-	_, err = uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	// Upload code to S3 and get signed URL
+	codeSignedURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	var codeShortURL string
 	if err != nil {
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
+	} else if e.URLShortener != nil {
+		codeShortURL = e.URLShortener.GetShortURL(codeSignedURL)
 	}
 
 	// Execute the script using Deno
@@ -206,10 +208,11 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	return ExecuteTypeScriptResults{
-		Status:    "success",
-		Output:    truncatedOutput,
-		ExitCode:  0,
-		SignedURL: signedURL,
-		ShortURL:  shortURL,
+		Status:       "success",
+		Output:       truncatedOutput,
+		ExitCode:     0,
+		SignedURL:    signedURL,
+		ShortURL:     shortURL,
+		CodeShortURL: codeShortURL,
 	}
 }
