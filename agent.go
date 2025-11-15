@@ -120,6 +120,8 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		"--no-check",
 		"--allow-env=\"AWS_*\"",
 		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
+		"--allow-read=.",
+		"--allow-write=.",
 		scriptPath,
 	)
 	cmd.Dir = tempDir
@@ -253,7 +255,24 @@ When users ask you questions or mention you, provide helpful and concise respons
 Your responses are automatically sent to the IRC channel, so just respond naturally.
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
 You have access to tools that will be displayed to users when used.
-You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.`, channel),
+You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.
+the code executed as deno witht the following perms 
+
+	// Execute the script using Deno
+	cmd := exec.Command(
+		"deno",
+		"run",
+		"--no-check",
+		"--allow-env=\"AWS_*\"",
+		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
+		"--allow-read=.",
+		"--allow-write=.",
+		scriptPath,
+	)
+
+	subject to change
+
+`, channel),
 		Tools: []tool.Tool{
 			ircTool,
 			tsTool,
