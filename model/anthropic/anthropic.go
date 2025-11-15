@@ -49,6 +49,18 @@ func (m *anthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 		MaxTokens: 4096,
 	}
 
+	// Add system instruction from Config if present (ADK puts it here)
+	if req.Config != nil && req.Config.SystemInstruction != nil {
+		for _, part := range req.Config.SystemInstruction.Parts {
+			if part.Text != "" {
+				if systemPrompt != "" {
+					systemPrompt += "\n\n"
+				}
+				systemPrompt += part.Text
+			}
+		}
+	}
+
 	// Add system prompt if present
 	if systemPrompt != "" {
 		params.System = []anthropic.TextBlockParam{
