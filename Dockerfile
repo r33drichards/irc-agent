@@ -10,6 +10,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy deps.ts and cache AWS SDK dependencies
+COPY deps.ts /tmp/deps.ts
+RUN deno cache /tmp/deps.ts
+
 # Copy and build Go application
 COPY . .
 RUN go mod tidy
