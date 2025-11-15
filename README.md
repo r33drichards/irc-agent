@@ -156,6 +156,7 @@ The agent can execute TypeScript/JavaScript code using Deno. Users can ask the b
 - Run data transformations
 - Test code snippets
 - Execute algorithms
+- Generate AWS S3 presigned URLs
 
 Example IRC interactions:
 ```
@@ -172,6 +173,60 @@ To test the TypeScript executor directly:
 ```bash
 go run -tags test_executor test_ts_executor.go agent.go
 ```
+
+#### AWS S3 Presigned URLs Example
+
+The agent can generate AWS S3 presigned URLs for both upload and download operations. Here's how to properly use AWS SDK v3 with the presigner:
+
+**Important**: In AWS SDK v3, you must use the `getSignedUrl` function from `@aws-sdk/s3-request-presigner`, NOT `client.getSignedUrl()` (which doesn't exist).
+
+```typescript
+import { S3Client, GetObjectCommand, PutObjectCommand } from "npm:@aws-sdk/client-s3@3";
+import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3";
+
+const client = new S3Client({ region: "us-west-2" });
+
+// Generate a presigned URL for PUT operation (upload)
+const putCommand = new PutObjectCommand({
+  Bucket: "your-bucket-name",
+  Key: "path/to/file.jpg",
+  ContentType: "image/jpeg",
+});
+
+const uploadUrl = await getSignedUrl(client, putCommand, { expiresIn: 86400 }); // 24 hours
+console.log("Upload URL:", uploadUrl);
+
+// Generate a presigned URL for GET operation (download)
+const getCommand = new GetObjectCommand({
+  Bucket: "your-bucket-name",
+  Key: "path/to/file.jpg",
+});
+
+const downloadUrl = await getSignedUrl(client, getCommand, { expiresIn: 86400 }); // 24 hours
+console.log("Download URL:", downloadUrl);
+```
+
+**Key Points:**
+- Import `getSignedUrl` from `@aws-sdk/s3-request-presigner@3`
+- Call `getSignedUrl(client, command, options)` - it's a standalone function, not a method on the client
+- Use `PutObjectCommand` for upload URLs and `GetObjectCommand` for download URLs
+- The `expiresIn` option sets the URL expiration time in seconds
+
+**Complete Working Example:**
+
+See [examples/aws_s3_presigned_urls.ts](examples/aws_s3_presigned_urls.ts) for a complete, runnable example with usage instructions.
+
+These packages are pre-cached in the Docker container via `deps.ts` for faster execution.
+
+**Testing Presigned URLs:**
+
+You can test the presigned URL functionality directly using the included test script:
+
+```bash
+deno run --allow-net test_s3_presigned_url.ts
+```
+
+This will verify that the AWS SDK packages are properly installed and working correctly.
 
 ### Change Trigger Conditions
 
