@@ -155,6 +155,13 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		// Continue without signed URL - don't fail the execution
 		signedURL = ""
 	}
+
+	// Create shortened URL if we have a signed URL
+	var shortURL string
+	if signedURL != "" && e.URLShortener != nil {
+		shortURL = e.URLShortener.GetShortURL(signedURL)
+	}
+
 	if execErr != nil {
 		// Check if it's an exit error
 		if exitErr, ok := execErr.(*exec.ExitError); ok {
@@ -167,6 +174,9 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 					Output:       outputText,
 					ErrorMessage: "Permission denied. The server is configured with --allow-all, but the code may have additional permission requirements.",
 					ExitCode:     exitCode,
+					SignedURL:    signedURL,
+					ShortURL:     shortURL,
+					CodeShortURL: codeShortURL,
 				}
 			}
 
@@ -175,6 +185,9 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 				Output:       outputText,
 				ErrorMessage: fmt.Sprintf("Execution failed with exit code %d", exitCode),
 				ExitCode:     exitCode,
+				SignedURL:    signedURL,
+				ShortURL:     shortURL,
+				CodeShortURL: codeShortURL,
 			}
 		}
 
@@ -184,6 +197,9 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 			Output:       outputText,
 			ErrorMessage: fmt.Sprintf("Execution error: %v", execErr),
 			ExitCode:     -1,
+			SignedURL:    signedURL,
+			ShortURL:     shortURL,
+			CodeShortURL: codeShortURL,
 		}
 	}
 
@@ -199,12 +215,6 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	truncatedOutput := fullResult
 	if len(fullResult) > maxOutputLen {
 		truncatedOutput = fullResult[:maxOutputLen] + fmt.Sprintf("\n... (output truncated, %d more bytes available via signed_url)", len(fullResult)-maxOutputLen)
-	}
-
-	// Create shortened URL if we have a signed URL
-	var shortURL string
-	if signedURL != "" && e.URLShortener != nil {
-		shortURL = e.URLShortener.GetShortURL(signedURL)
 	}
 
 	return ExecuteTypeScriptResults{
