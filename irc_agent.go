@@ -50,7 +50,7 @@ func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, er
 	ircConn.UseTLS = false
 
 	// Create Anthropic model (Claude 3.5 Haiku)
-	model, err := anthropicmodel.NewModel(ctx, "claude-3-5-haiku-20241022", apiKey)
+	model, err := anthropicmodel.NewModel(ctx, "claude-haiku-4-5", apiKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
