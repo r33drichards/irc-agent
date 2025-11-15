@@ -392,6 +392,14 @@ const response = await client.send(command);
 const body = await response.Body.transformToString();
 console.log(body);
 
+Example: List all objects in an S3 bucket:
+import { S3Client, ListObjectsV2Command } from "npm:@aws-sdk/client-s3@3";
+const client = new S3Client({ region: "us-west-2" });
+const command = new ListObjectsV2Command({
+  Bucket: "robust-cicada"
+});
+const response = await client.send(command);
+console.log(JSON.stringify(response.Contents, null, 2));
 `, channel),
 		Tools: []tool.Tool{
 			ircTool,
