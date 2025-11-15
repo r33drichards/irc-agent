@@ -179,16 +179,15 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
 	} else {
 		// Shorten the signed URL
-		var shortURL string
+		var displayURL string
 		if e.URLShortener != nil {
-			shortURL = e.URLShortener.GetShortURL(signedURL)
+			displayURL = e.URLShortener.GetShortURL(signedURL)
+		} else {
+			displayURL = signedURL
 		}
 
-		// Send message to IRC with signed URL of code
-		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", signedURL)
-		if shortURL != "" {
-			message = fmt.Sprintf("Executing TypeScript/JavaScript code. Full code: %s (short: %s)", signedURL, shortURL)
-		}
+		// Send message to IRC with URL of code
+		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", displayURL)
 		e.SendMessage(ctx, SendIRCMessageParams{
 			Message: message,
 			Channel: e.Channel,
@@ -225,16 +224,15 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		signedURL = "" // Clear the signed URL on error
 	} else {
 		// Shorten the signed URL
-		var shortURL string
+		var displayURL string
 		if e.URLShortener != nil {
-			shortURL = e.URLShortener.GetShortURL(signedURL)
+			displayURL = e.URLShortener.GetShortURL(signedURL)
+		} else {
+			displayURL = signedURL
 		}
 
-		// Send message to IRC with signed URL of result (only if upload succeeded)
-		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", signedURL)
-		if shortURL != "" {
-			message = fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output: %s (short: %s)", signedURL, shortURL)
-		}
+		// Send message to IRC with URL of result (only if upload succeeded)
+		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", displayURL)
 		e.SendMessage(ctx, SendIRCMessageParams{
 			Message: message,
 			Channel: e.Channel,
