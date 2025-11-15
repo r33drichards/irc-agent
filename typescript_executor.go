@@ -121,6 +121,12 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
 	if err != nil {
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
+		// Send message even if S3 upload fails
+		message := fmt.Sprintf("Executing TypeScript/JavaScript code (S3 upload failed: %v)", err)
+		e.SendMessage(ctx, SendIRCMessageParams{
+			Message: message,
+			Channel: e.Channel,
+		})
 	} else {
 		// Shorten the signed URL
 		var displayURL string
@@ -167,6 +173,12 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		log.Printf("Warning: Failed to upload result to S3: %v", uploadErr)
 		// Continue without signed URL - don't fail the execution
 		signedURL = "" // Clear the signed URL on error
+		// Send message even if S3 upload fails
+		message := fmt.Sprintf("TypeScript/JavaScript code executed (S3 upload failed: %v)", uploadErr)
+		e.SendMessage(ctx, SendIRCMessageParams{
+			Message: message,
+			Channel: e.Channel,
+		})
 	} else {
 		// Shorten the signed URL
 		var displayURL string
