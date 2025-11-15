@@ -202,7 +202,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	outputText := string(output)
 
 		// Upload full result to S3 and get signed URL
-	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), outputText)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
