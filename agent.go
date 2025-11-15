@@ -272,6 +272,11 @@ the code executed as deno witht the following perms
 
 	subject to change
 
+
+	your environment comes with aws credentials, with the following access permissions
+	
+	you are configured with full access to the s3 bucket s3://robust-cicada
+
 `, channel),
 		Tools: []tool.Tool{
 			ircTool,
