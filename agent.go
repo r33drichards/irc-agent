@@ -488,6 +488,13 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 		return
 	}
 
+	// Handle kill command
+	if strings.TrimSpace(message) == ",kill" {
+		log.Printf("Kill command received from %s in %s - exiting", sender, channel)
+		ia.ircConn.Privmsg(channel, "Shutting down...")
+		os.Exit(1)
+	}
+
 	// Create a prompt for the agent that includes the channel context
 	prompt := fmt.Sprintf("User %s in channel %s said: %s\n", sender, channel, message)
 
