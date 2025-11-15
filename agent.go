@@ -711,16 +711,15 @@ func (ia *IRCAgent) sendToIRC(message, channel string) {
 
 // URLShortener provides URL shortening functionality with HTTP serving
 type URLShortener struct {
-	mu       sync.RWMutex
-	urlMap   map[string]string // maps short ID to original URL
-	idLength int               // length of the short ID
-	host     string            // the base URL for short links (e.g., "http://example.com:3000")
+	storage  URLStorage // storage backend for URL mappings
+	idLength int        // length of the short ID
+	host     string     // the base URL for short links (e.g., "http://example.com:3000")
 }
 
 // NewURLShortener creates a new URL shortener instance
-func NewURLShortener(host string) *URLShortener {
+func NewURLShortener(host string, storage URLStorage) *URLShortener {
 	return &URLShortener{
-		urlMap:   make(map[string]string),
+		storage:  storage,
 		idLength: 8,
 		host:     host,
 	}
@@ -728,15 +727,15 @@ func NewURLShortener(host string) *URLShortener {
 
 // Shorten takes a URL (including signed URLs) and returns a short ID
 func (us *URLShortener) Shorten(url string) string {
-	us.mu.Lock()
-	defer us.mu.Unlock()
-
 	// Generate a short ID from the URL using SHA256
 	hash := sha256.Sum256([]byte(url))
 	shortID := hex.EncodeToString(hash[:])[:us.idLength]
 
-	// Store the mapping
-	us.urlMap[shortID] = url
+	// Store the mapping using the storage backend
+	ctx := context.Background()
+	if err := us.storage.Set(ctx, shortID, url); err != nil {
+		log.Printf("Error storing URL mapping: %v", err)
+	}
 
 	log.Printf("Shortened URL: %s -> %s", shortID, url)
 	return shortID
@@ -802,10 +801,14 @@ func (us *URLShortener) Serve(port string) error {
 			return
 		}
 
-		// Look up the original URL
-		us.mu.RLock()
-		originalURL, exists := us.urlMap[id]
-		us.mu.RUnlock()
+		// Look up the original URL using storage backend
+		ctx := r.Context()
+		originalURL, exists, err := us.storage.Get(ctx, id)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			log.Printf("Error retrieving URL for %s: %v", id, err)
+			return
+		}
 
 		if !exists {
 			http.NotFound(w, r)
@@ -832,8 +835,43 @@ func main() {
 		shortenerHost = "https://irc-agent-production-09eb.up.railway.app"
 	}
 
-	// Create URL Shortener first
-	urlShortener := NewURLShortener(shortenerHost)
+	// Create storage backend based on environment variable
+	var storage URLStorage
+	storageType := os.Getenv("STORAGE_TYPE")
+
+	if storageType == "redis" {
+		// Redis storage configuration
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr == "" {
+			redisAddr = "localhost:6379"
+		}
+
+		redisPassword := os.Getenv("REDIS_PASSWORD")
+
+		redisConfig := RedisStorageConfig{
+			Addr:     redisAddr,
+			Password: redisPassword,
+			DB:       0,
+			TTL:      0, // No expiration by default
+		}
+
+		var err error
+		storage, err = NewRedisStorage(ctx, redisConfig)
+		if err != nil {
+			log.Fatalf("Failed to create Redis storage: %v", err)
+		}
+		log.Println("Using Redis storage backend")
+	} else {
+		// Default to in-memory storage
+		storage = NewInMemoryStorage()
+		log.Println("Using in-memory storage backend")
+	}
+
+	// Ensure storage is closed on exit
+	defer storage.Close()
+
+	// Create URL Shortener with storage backend
+	urlShortener := NewURLShortener(shortenerHost, storage)
 
 	// Create IRC Agent with URL Shortener
 	ircAgent, err := NewIRCAgent(ctx, urlShortener)
