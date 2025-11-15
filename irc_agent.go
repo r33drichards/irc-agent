@@ -335,11 +335,9 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 
 						// For execute_typescript, extract and display the short_url if present
 						if toolName == "execute_typescript" && part.FunctionResponse.Response != nil {
-							if responseMap, ok := part.FunctionResponse.Response.(map[string]any); ok {
-								if shortURL, ok := responseMap["short_url"].(string); ok && shortURL != "" {
-									urlMessage := fmt.Sprintf("Full output: %s", shortURL)
-									ia.ircConn.Privmsg(channel, urlMessage)
-								}
+							if shortURL, ok := part.FunctionResponse.Response["short_url"].(string); ok && shortURL != "" {
+								urlMessage := fmt.Sprintf("Full output: %s", shortURL)
+								ia.ircConn.Privmsg(channel, urlMessage)
 							}
 						}
 					}

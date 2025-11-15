@@ -118,7 +118,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	// create s3 url of params.Code
 	// Upload code to S3 and get signed URL (optional - for user reference)
 	// The signed URL for code is not returned in results as it's less commonly needed
-	_, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	_, err = uploadToS3AndGetSignedURL(context.Background(), params.Code)
 	if err != nil {
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
 	}
