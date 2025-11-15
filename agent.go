@@ -246,17 +246,12 @@ OUTPUT:
 		}
 	}
 
-	// Truncate output if it's too large to avoid sending excessive tokens to LLM
-	// Full output is always available via the signed URL
-	const maxOutputLen = 500
-	truncatedOutput := fullResult
-	if len(fullResult) > maxOutputLen {
-		truncatedOutput = fullResult[:maxOutputLen] + fmt.Sprintf("\n... (output truncated, %d more bytes available via signed_url)", len(fullResult)-maxOutputLen)
-	}
+	// Return the signed URL as the output message
+	outputMessage := fmt.Sprintf("Code execution results: %s", signedURL)
 
 	return ExecuteTypeScriptResults{
 		Status:    "success",
-		Output:    truncatedOutput,
+		Output:    outputMessage,
 		ExitCode:  0,
 		SignedURL: signedURL,
 	}
