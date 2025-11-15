@@ -86,7 +86,9 @@ type ExecuteTypeScriptResults struct {
 	Output       string `json:"output"`
 	ErrorMessage string `json:"error_message,omitempty"`
 	ExitCode     int    `json:"exit_code"`
-	SignedURL    string `json:"signed_url,omitempty"`
+	SignedURL    string `json:"signed_url,omitempty"`      // URL to full results (code + output)
+	CodeURL      string `json:"code_url,omitempty"`        // URL to input code
+	OutputURL    string `json:"output_url,omitempty"`      // URL to output only
 }
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
@@ -223,6 +225,18 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		fullResult = "Code executed successfully (no output)"
 	}
 
+	// Upload code to S3 and get signed URL
+	codeURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	if err != nil {
+		log.Printf("Warning: Failed to upload code to S3: %v", err)
+	}
+
+	// Upload output to S3 and get signed URL
+	outputURL, err := uploadToS3AndGetSignedURL(context.Background(), fullResult)
+	if err != nil {
+		log.Printf("Warning: Failed to upload output to S3: %v", err)
+	}
+
 	// Create formatted content with both code and output
 	formattedContent := fmt.Sprintf(`========================================
 EXECUTED CODE:
@@ -240,9 +254,11 @@ OUTPUT:
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
 		return ExecuteTypeScriptResults{
-			Status:   "success",
-			Output:   fullResult,
-			ExitCode: 0,
+			Status:    "success",
+			Output:    fullResult,
+			ExitCode:  0,
+			CodeURL:   codeURL,
+			OutputURL: outputURL,
 		}
 	}
 
@@ -254,6 +270,8 @@ OUTPUT:
 		Output:    outputMessage,
 		ExitCode:  0,
 		SignedURL: signedURL,
+		CodeURL:   codeURL,
+		OutputURL: outputURL,
 	}
 }
 
@@ -525,6 +543,7 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 
 					// Don't send notification for send_irc_message tool to avoid clutter
 					if toolName != "send_irc_message" {
+						// For execute_typescript, we'll add the code URL after execution
 						summary := fmt.Sprintf("[Using tool: %s]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
 					}
@@ -535,12 +554,23 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					toolName := part.FunctionResponse.Name
 					log.Printf("Tool %s responded", toolName)
 
-					// For execute_typescript, automatically send the signed URL if available
+					// For execute_typescript, automatically send the S3 URLs
 					if toolName == "execute_typescript" {
-						if signedURL, ok := part.FunctionResponse.Response["signed_url"].(string); ok && signedURL != "" {
-							urlMessage := fmt.Sprintf("Code execution results: %s", signedURL)
-							ia.ircConn.Privmsg(channel, urlMessage)
+						// Send code URL if available
+						if codeURL, ok := part.FunctionResponse.Response["code_url"].(string); ok && codeURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Code: %s", codeURL))
 						}
+						
+						// Send output URL if available
+						if outputURL, ok := part.FunctionResponse.Response["output_url"].(string); ok && outputURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Output: %s", outputURL))
+						}
+						
+						// Send combined results URL if available
+						if signedURL, ok := part.FunctionResponse.Response["signed_url"].(string); ok && signedURL != "" {
+							ia.ircConn.Privmsg(channel, fmt.Sprintf("Full results: %s", signedURL))
+						}
+						
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
 					} else if toolName != "send_irc_message" {
