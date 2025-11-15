@@ -334,18 +334,6 @@ func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, er
 		conn: ircConn,
 	}
 
-	// Create IRC message tool using functiontool
-	ircTool, err := functiontool.New(
-		functiontool.Config{
-			Name:        "send_irc_message",
-			Description: "Sends a message to the IRC channel. Use this tool to respond to users in the IRC channel.",
-		},
-		ircHandler.SendMessage,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create IRC tool: %w", err)
-	}
-
 	// Create TypeScript executor
 	tsExecutor := &TypeScriptExecutor{
 		SendMessage:  ircHandler.SendMessage,
