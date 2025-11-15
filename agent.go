@@ -201,7 +201,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Deno execution error: %v", err)
-		panic(err)
+		// panic(err)
 	}
 	outputText := string(output)
 
