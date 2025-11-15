@@ -248,12 +248,6 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel string) {
-	// Handle IRC commands (messages starting with / or ,)
-	if strings.HasPrefix(message, "/") {
-		ia.handleCommand(sender, message, channel)
-		return
-	}
-
 	// Handle comma-prefixed commands
 	if strings.HasPrefix(message, ",") {
 		ia.handleCommaCommand(sender, message, channel)
@@ -349,55 +343,6 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 	}
 
 	log.Printf("Agent finished processing message from %s in %s", sender, channel)
-}
-
-// handleCommand processes IRC commands sent to the agent
-func (ia *IRCAgent) handleCommand(sender, message, sourceChannel string) {
-	// Parse the command and arguments
-	parts := strings.Fields(message)
-	if len(parts) == 0 {
-		return
-	}
-
-	command := strings.ToLower(parts[0])
-	args := parts[1:]
-
-	log.Printf("User %s sent command: %s %v", sender, command, args)
-
-	switch command {
-	case "/join":
-		if len(args) < 1 {
-			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /join #channel", sender))
-			return
-		}
-		channel := args[0]
-		ia.ircConn.Join(channel)
-		log.Printf("Joining channel %s (requested by %s)", channel, sender)
-		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Joining %s", sender, channel))
-
-	case "/part":
-		if len(args) < 1 {
-			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /part #channel", sender))
-			return
-		}
-		channel := args[0]
-		ia.ircConn.Part(channel)
-		log.Printf("Leaving channel %s (requested by %s)", channel, sender)
-		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Leaving %s", sender, channel))
-
-	case "/nick":
-		if len(args) < 1 {
-			ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Usage: /nick newnick", sender))
-			return
-		}
-		newNick := args[0]
-		ia.ircConn.Nick(newNick)
-		log.Printf("Changing nick to %s (requested by %s)", newNick, sender)
-		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Changing nick to %s", sender, newNick))
-
-	default:
-		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Unknown command: %s. Available commands: /join, /part, /nick", sender, command))
-	}
 }
 
 // handleCommaCommand processes comma-prefixed commands sent to the agent
