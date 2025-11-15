@@ -114,7 +114,14 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	// Execute the script using Deno
-	cmd := exec.Command("deno", "run", "--no-check", "--allow-env=\"AWS_*\"", scriptPath)
+	cmd := exec.Command(
+		"deno",
+		"run",
+		"--no-check",
+		"--allow-env=\"AWS_*\"",
+		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
+		scriptPath,
+	)
 	cmd.Dir = tempDir
 
 	// Capture stdout and stderr
@@ -237,8 +244,8 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 
 	// Create ADK agent
 	agent, err := llmagent.New(llmagent.Config{
-		Name:  "irc_agent",
-		Model: model,
+		Name:        "irc_agent",
+		Model:       model,
 		Description: "An intelligent IRC bot that listens to messages and responds to users in the IRC channel.",
 		Instruction: fmt.Sprintf(`You are a helpful IRC bot in the %s channel.
 Your role is to assist users with their questions and engage in friendly conversation.
@@ -304,7 +311,6 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 		if e.Nick != "agent" {
 			go ia.processMessage(ctx, sender, message, channel)
 		}
-
 
 	})
 
