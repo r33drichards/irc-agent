@@ -38,8 +38,6 @@ type ExecuteTypeScriptResults struct {
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
 type TypeScriptExecutor struct {
 	mu           sync.Mutex
-	SendMessage  func(ctx tool.Context, params SendIRCMessageParams) SendIRCMessageResults
-	Channel      string
 	URLShortener *URLShortener
 }
 
@@ -118,31 +116,11 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	// create s3 url of params.Code
-	// Upload code to S3 and get signed URL
-	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
+	// Upload code to S3 and get signed URL (optional - for user reference)
+	// The signed URL for code is not returned in results as it's less commonly needed
+	_, err := uploadToS3AndGetSignedURL(context.Background(), params.Code)
 	if err != nil {
 		log.Printf("Warning: Failed to upload code to S3: %v", err)
-		// Send message even if S3 upload fails
-		message := fmt.Sprintf("Executing TypeScript/JavaScript code (S3 upload failed: %v)", err)
-		e.SendMessage(ctx, SendIRCMessageParams{
-			Message: message,
-			Channel: e.Channel,
-		})
-	} else {
-		// Shorten the signed URL
-		var displayURL string
-		if e.URLShortener != nil {
-			displayURL = e.URLShortener.GetShortURL(signedURL)
-		} else {
-			displayURL = signedURL
-		}
-
-		// Send message to IRC with URL of code
-		message := fmt.Sprintf("Executing TypeScript/JavaScript code. Full code available at: %s", displayURL)
-		e.SendMessage(ctx, SendIRCMessageParams{
-			Message: message,
-			Channel: e.Channel,
-		})
 	}
 
 	// Execute the script using Deno
@@ -173,28 +151,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	if uploadErr != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", uploadErr)
 		// Continue without signed URL - don't fail the execution
-		signedURL = "" // Clear the signed URL on error
-		// Send message even if S3 upload fails
-		message := fmt.Sprintf("TypeScript/JavaScript code executed (S3 upload failed: %v)", uploadErr)
-		e.SendMessage(ctx, SendIRCMessageParams{
-			Message: message,
-			Channel: e.Channel,
-		})
-	} else {
-		// Shorten the signed URL
-		var displayURL string
-		if e.URLShortener != nil {
-			displayURL = e.URLShortener.GetShortURL(signedURL)
-		} else {
-			displayURL = signedURL
-		}
-
-		// Send message to IRC with URL of result (only if upload succeeded)
-		message := fmt.Sprintf("TypeScript/JavaScript code executed successfully. Full output available at: %s", displayURL)
-		e.SendMessage(ctx, SendIRCMessageParams{
-			Message: message,
-			Channel: e.Channel,
-		})
+		signedURL = ""
 	}
 	if execErr != nil {
 		// Check if it's an exit error

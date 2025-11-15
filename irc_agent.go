@@ -62,8 +62,6 @@ func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, er
 
 	// Create TypeScript executor
 	tsExecutor := &TypeScriptExecutor{
-		SendMessage:  ircHandler.SendMessage,
-		Channel:      channel,
 		URLShortener: urlShortener,
 	}
 
@@ -102,16 +100,11 @@ IMPORTANT - Code Execution Results Workflow:
 1. When you use execute_typescript, results are AUTOMATICALLY uploaded to S3
 2. The response includes TWO URL fields (both are OUTPUT, not input):
    - "signed_url": The full S3 presigned URL (long)
-   - "short_url": The shortened version (e.g., https://irc-agent-production-09eb.up.railway.app/abc12345)
+   - "short_url": The shortened version (automatically displayed in IRC after tool execution)
 3. The "output" field may be TRUNCATED (max 500 chars) to save tokens
 4. If truncated, use execute_typescript again with Deno to download the full results from the signed_url
 5. Signed URLs are valid for 24 hours
-
-CRITICAL - Sharing Results with Users:
-- ALWAYS share the "short_url" in your IRC response so users can access full results
-- Do this for EVERY execute_typescript call, even if output seems short
-- Example: "I've listed the S3 bucket contents. Full results: https://irc-agent-production-09eb.up.railway.app/abc12345"
-- The short_url is automatically created - you don't need to shorten it yourself
+6. The short_url is automatically shown in IRC - you don't need to mention it in your response
 
 Note: Both signed_url and short_url are OUTPUT fields, NOT input parameters to execute_typescript.
 
@@ -339,6 +332,16 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					if toolName != "send_irc_message" {
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
+
+						// For execute_typescript, extract and display the short_url if present
+						if toolName == "execute_typescript" && part.FunctionResponse.Response != nil {
+							if responseMap, ok := part.FunctionResponse.Response.(map[string]any); ok {
+								if shortURL, ok := responseMap["short_url"].(string); ok && shortURL != "" {
+									urlMessage := fmt.Sprintf("Full output: %s", shortURL)
+									ia.ircConn.Privmsg(channel, urlMessage)
+								}
+							}
+						}
 					}
 				}
 			}
