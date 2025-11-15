@@ -1,10 +1,10 @@
-# IRC Agent with Google ADK
+# IRC Agent with Anthropic Claude
 
-An intelligent IRC bot powered by Google's Agent Development Kit (ADK) and Gemini AI. This bot listens to IRC messages and responds intelligently using the Gemini language model.
+An intelligent IRC bot powered by Google's Agent Development Kit (ADK) and Anthropic's Claude AI. This bot listens to IRC messages and responds intelligently using the Claude 3.5 Haiku language model.
 
 ## Features
 
-- **AI-Powered Responses**: Uses Google Gemini to generate intelligent responses to IRC messages
+- **AI-Powered Responses**: Uses Anthropic Claude 3.5 Haiku to generate intelligent responses to IRC messages
 - **Custom IRC Tool**: Built-in tool for sending messages to IRC channels
 - **TypeScript/JavaScript Execution**: Execute TypeScript or JavaScript code using Deno with full permissions
 - **Dual Mode Operation**:
@@ -15,7 +15,7 @@ An intelligent IRC bot powered by Google's Agent Development Kit (ADK) and Gemin
 ## Prerequisites
 
 - Go 1.24.4 or later
-- Google API Key (get from [Google AI Studio](https://aistudio.google.com/app/apikey))
+- Anthropic API Key (get from [Anthropic Console](https://console.anthropic.com/))
 - IRC server access with NickServ authentication
 - Deno runtime (for TypeScript execution tool) - Install from [deno.land](https://deno.land)
 
@@ -45,8 +45,8 @@ SERVER=irc.example.com:6667
 CHANNEL=#your-channel
 PASS=your-nickserv-password
 
-# Google Gemini API Key
-GOOGLE_API_KEY=your-google-api-key-here
+# Anthropic API Key
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
 ```
 
 ### 3. Load Environment Variables
@@ -70,7 +70,7 @@ The bot will:
 2. Authenticate with NickServ
 3. Join the configured channel
 4. Listen for messages that mention "layer-d8" or start with `!` or `,`
-5. Respond using the Gemini AI model
+5. Respond using the Claude 3.5 Haiku AI model
 
 ### Web Interface Mode (Development)
 
@@ -103,7 +103,7 @@ Access the web interface at [http://localhost:8080](http://localhost:8080) to ch
    - Processes agent responses and sends them to IRC
 
 4. **ADK Integration**: Uses Google's Agent Development Kit
-   - Gemini 2.0 Flash model for fast responses
+   - Claude 3.5 Haiku model for fast, intelligent responses
    - Custom instructions for IRC-appropriate responses
    - Tool-based architecture for extensibility
 
@@ -116,7 +116,7 @@ IRC Message → IRC Event Handler → ADK Agent → Tool Execution → IRC Respo
 1. User sends message in IRC channel
 2. Bot detects mention or command prefix
 3. Message is formatted and sent to ADK agent
-4. Agent processes with Gemini model
+4. Agent processes with Claude 3.5 Haiku model
 5. Agent calls `send_irc_message` tool
 6. Tool sends response back to IRC channel
 
