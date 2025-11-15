@@ -200,12 +200,13 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// command can exit with non-zero code and that would be
+		// an error technically, but not an error logically
 		log.Printf("Deno execution error: %v", err)
-		// panic(err)
 	}
 	outputText := string(output)
 
-		// Upload full result to S3 and get signed URL
+	// Upload full result to S3 and get signed URL
 	signedURL, err = uploadToS3AndGetSignedURL(context.Background(), outputText)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
@@ -256,8 +257,6 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	if fullResult == "" {
 		fullResult = "Code executed successfully (no output)"
 	}
-
-
 
 	// Truncate output if it's too large to avoid sending excessive tokens to LLM
 	// Full output is always available via the signed URL
