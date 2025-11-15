@@ -529,8 +529,16 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					toolName := part.FunctionResponse.Name
 					log.Printf("Tool %s responded", toolName)
 
-					// For non-IRC tools, show completion
-					if toolName != "send_irc_message" {
+					// For execute_typescript, automatically send the signed URL if available
+					if toolName == "execute_typescript" {
+						if signedURL, ok := part.FunctionResponse.Response["signed_url"].(string); ok && signedURL != "" {
+							urlMessage := fmt.Sprintf("Code execution results: %s", signedURL)
+							ia.ircConn.Privmsg(channel, urlMessage)
+						}
+						summary := fmt.Sprintf("[Tool %s completed]", toolName)
+						ia.ircConn.Privmsg(channel, summary)
+					} else if toolName != "send_irc_message" {
+						// For non-IRC tools, show completion
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
 					}
