@@ -199,6 +199,10 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 
 	// Capture stdout and stderr
 	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Deno execution error: %v", err)
+		panic(err)
+	}
 	outputText := string(output)
 
 		// Upload full result to S3 and get signed URL
