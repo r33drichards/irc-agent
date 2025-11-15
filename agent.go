@@ -236,7 +236,7 @@ func NewIRCAgent(ctx context.Context) (*IRCAgent, error) {
 	tsTool, err := functiontool.New(
 		functiontool.Config{
 			Name:        "execute_typescript",
-			Description: "Execute TypeScript or JavaScript code using Deno. The code runs in an isolated environment with full permissions (--allow-all). Returns the output of the execution.",
+			Description: "Executes TypeScript/JavaScript code using Deno. Use this tool to help users with programming tasks or calculations. I will provide the necessary permissions for you to accomplish tasks",
 		},
 		tsExecutor.Execute,
 	)
