@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"strings"
@@ -183,7 +184,16 @@ func convertToAnthropicMessages(contents []*genai.Content) ([]anthropic.MessageP
 
 			// Handle function responses (tool results)
 			if part.FunctionResponse != nil {
-				resultText := fmt.Sprintf("%v", part.FunctionResponse.Response)
+				// Properly serialize the response as JSON
+				var resultText string
+				// Try to marshal to JSON for better serialization
+				if jsonBytes, err := json.Marshal(part.FunctionResponse.Response); err == nil {
+					resultText = string(jsonBytes)
+				} else {
+					// Fallback to string conversion if marshal fails
+					resultText = fmt.Sprintf("%v", part.FunctionResponse.Response)
+				}
+
 				toolResult := anthropic.NewToolResultBlock(
 					part.FunctionResponse.ID,
 					resultText,
@@ -235,15 +245,30 @@ func convertToAnthropicTools(genaiTools []*genai.Tool) []anthropic.ToolUnionPara
 				Properties: make(map[string]interface{}),
 			}
 
-			if fd.Parameters != nil && fd.Parameters.Properties != nil {
-				inputSchema.Properties = fd.Parameters.Properties
+			if fd.Parameters != nil {
+				if fd.Parameters.Properties != nil {
+					inputSchema.Properties = fd.Parameters.Properties
+				}
 				if fd.Parameters.Required != nil {
 					inputSchema.Required = fd.Parameters.Required
 				}
 			}
 
-			tool := anthropic.ToolUnionParamOfTool(inputSchema, fd.Name)
-			tools = append(tools, tool)
+			// Create tool with description using ToolParam directly
+			toolParam := anthropic.ToolParam{
+				Name:        fd.Name,
+				InputSchema: inputSchema,
+			}
+
+			// Add description if present
+			if fd.Description != "" {
+				toolParam.Description = anthropic.String(fd.Description)
+			}
+
+			// Convert to ToolUnionParam using OfTool field
+			tools = append(tools, anthropic.ToolUnionParam{
+				OfTool: &toolParam,
+			})
 		}
 	}
 
@@ -273,11 +298,13 @@ func convertToLLMResponse(msg *anthropic.Message) *model.LLMResponse {
 			// Convert json.RawMessage to map[string]any
 			var inputMap map[string]any
 			if b.Input != nil {
-				// b.Input is already the correct type - it's json.RawMessage
-				// We can use it directly as Args since Args is also a generic type
-				inputMap = make(map[string]any)
-				// Store raw input as-is
-				inputMap["_raw"] = b.Input
+				// Unmarshal the JSON input into a map
+				if err := json.Unmarshal(b.Input, &inputMap); err != nil {
+					// If unmarshal fails, create a simple map with the raw data
+					inputMap = map[string]any{
+						"_raw": string(b.Input),
+					}
+				}
 			}
 
 			content.Parts = append(content.Parts, &genai.Part{
