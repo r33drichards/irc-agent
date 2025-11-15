@@ -218,26 +218,34 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 	}
 
 	// Successful execution
-	result := outputText
-	if result == "" {
-		result = "Code executed successfully (no output)"
+	fullResult := outputText
+	if fullResult == "" {
+		fullResult = "Code executed successfully (no output)"
 	}
 
-	// Upload result to S3 and get signed URL
-	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), result)
+	// Upload full result to S3 and get signed URL
+	signedURL, err := uploadToS3AndGetSignedURL(context.Background(), fullResult)
 	if err != nil {
 		log.Printf("Warning: Failed to upload result to S3: %v", err)
 		// Continue without signed URL - don't fail the execution
 		return ExecuteTypeScriptResults{
 			Status:   "success",
-			Output:   result,
+			Output:   fullResult,
 			ExitCode: 0,
 		}
 	}
 
+	// Truncate output if it's too large to avoid sending excessive tokens to LLM
+	// Full output is always available via the signed URL
+	const maxOutputLen = 500
+	truncatedOutput := fullResult
+	if len(fullResult) > maxOutputLen {
+		truncatedOutput = fullResult[:maxOutputLen] + fmt.Sprintf("\n... (output truncated, %d more bytes available via signed_url)", len(fullResult)-maxOutputLen)
+	}
+
 	return ExecuteTypeScriptResults{
 		Status:    "success",
-		Output:    result,
+		Output:    truncatedOutput,
 		ExitCode:  0,
 		SignedURL: signedURL,
 	}
@@ -325,31 +333,38 @@ Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
 You have access to tools that will be displayed to users when used.
 You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.
 
-IMPORTANT: After code execution, the results are automatically uploaded to S3 and a signed URL is generated.
-When the execute_typescript tool returns successfully, it will include a "signed_url" field in the response.
-You MUST share this signed URL with the user in your response so they can access the full output.
-The signed URL is valid for 24 hours and provides access to the complete execution output.
+IMPORTANT - Code Execution Results Workflow:
+1. When you use execute_typescript, results are AUTOMATICALLY uploaded to S3
+2. The response includes a "signed_url" field (OUTPUT, not input) with the URL to FULL results
+3. The "output" field may be TRUNCATED (max 500 chars) to save tokens
+4. If truncated, use execute_typescript again with Deno to download and inspect the full results
+5. Signed URLs are valid for 24 hours
 
-the code executed as deno witht the following perms
+Note: signed_url is an OUTPUT field, NOT an input parameter to execute_typescript.
 
-	// Execute the script using Deno
-	cmd := exec.Command(
-		"deno",
-		"run",
-		"--no-check",
-		"--allow-env=\"AWS_*\"",
-		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
-		"--allow-read=.",
-		"--allow-write=.",
-		scriptPath,
-	)
+Deno Environment & Permissions:
+- Deno runs with: --allow-env="AWS_*", --allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com, --allow-read=., --allow-write=.
+- AWS credentials are available via environment variables
+- Full access to S3 bucket: s3://robust-cicada
+- AWS SDK is available for Deno
 
-	subject to change
+Example: Download file from signed URL using Deno:
+const response = await fetch("SIGNED_URL_HERE");
+const text = await response.text();
+await Deno.writeTextFile("./result.txt", text);
+const content = await Deno.readTextFile("./result.txt");
+console.log(content);
 
-
-	your environment comes with aws credentials, with the following access permissions
-
-	you are configured with full access to the s3 bucket s3://robust-cicada
+Example: Use AWS SDK in Deno to interact with S3:
+import { S3Client, GetObjectCommand } from "npm:@aws-sdk/client-s3@3";
+const client = new S3Client({ region: "us-west-2" });
+const command = new GetObjectCommand({
+  Bucket: "robust-cicada",
+  Key: "code-results/1234567890-abcdef.txt"
+});
+const response = await client.send(command);
+const body = await response.Body.transformToString();
+console.log(body);
 
 `, channel),
 		Tools: []tool.Tool{
