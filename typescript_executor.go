@@ -32,6 +32,7 @@ type ExecuteTypeScriptResults struct {
 	ErrorMessage string `json:"error_message,omitempty"`
 	ExitCode     int    `json:"exit_code"`
 	SignedURL    string `json:"signed_url,omitempty"`
+	ShortURL     string `json:"short_url,omitempty"`
 }
 
 // TypeScriptExecutor handles TypeScript/JavaScript code execution using Deno
@@ -241,10 +242,17 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		truncatedOutput = fullResult[:maxOutputLen] + fmt.Sprintf("\n... (output truncated, %d more bytes available via signed_url)", len(fullResult)-maxOutputLen)
 	}
 
+	// Create shortened URL if we have a signed URL
+	var shortURL string
+	if signedURL != "" && e.URLShortener != nil {
+		shortURL = e.URLShortener.GetShortURL(signedURL)
+	}
+
 	return ExecuteTypeScriptResults{
 		Status:    "success",
 		Output:    truncatedOutput,
 		ExitCode:  0,
 		SignedURL: signedURL,
+		ShortURL:  shortURL,
 	}
 }
