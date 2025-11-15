@@ -62,8 +62,6 @@ func NewIRCAgent(ctx context.Context, urlShortener *URLShortener) (*IRCAgent, er
 
 	// Create TypeScript executor
 	tsExecutor := &TypeScriptExecutor{
-		SendMessage:  ircHandler.SendMessage,
-		Channel:      channel,
 		URLShortener: urlShortener,
 	}
 
@@ -100,12 +98,15 @@ You have the execute_typescript tool which gives you POWERFUL capabilities to ac
 
 IMPORTANT - Code Execution Results Workflow:
 1. When you use execute_typescript, results are AUTOMATICALLY uploaded to S3
-2. The response includes a "signed_url" field (OUTPUT, not input) with the URL to FULL results
+2. The response includes TWO URL fields (both are OUTPUT, not input):
+   - "signed_url": The full S3 presigned URL (long)
+   - "short_url": The shortened version (automatically displayed in IRC after tool execution)
 3. The "output" field may be TRUNCATED (max 500 chars) to save tokens
-4. If truncated, use execute_typescript again with Deno to download and inspect the full results
+4. If truncated, use execute_typescript again with Deno to download the full results from the signed_url
 5. Signed URLs are valid for 24 hours
+6. The short_url is automatically shown in IRC - you don't need to mention it in your response
 
-Note: signed_url is an OUTPUT field, NOT an input parameter to execute_typescript.
+Note: Both signed_url and short_url are OUTPUT fields, NOT input parameters to execute_typescript.
 
 Deno Environment & Permissions:
 - Deno runs with: --allow-env="AWS_*", --allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com,localhost:3000, --allow-read=., --allow-write=.
@@ -331,6 +332,20 @@ func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel
 					if toolName != "send_irc_message" {
 						summary := fmt.Sprintf("[Tool %s completed]", toolName)
 						ia.ircConn.Privmsg(channel, summary)
+
+						// For execute_typescript, extract and display URLs if present
+						if toolName == "execute_typescript" && part.FunctionResponse.Response != nil {
+							// Display code URL first
+							if codeURL, ok := part.FunctionResponse.Response["code_short_url"].(string); ok && codeURL != "" {
+								codeMessage := fmt.Sprintf("Full code: %s", codeURL)
+								ia.ircConn.Privmsg(channel, codeMessage)
+							}
+							// Display output URL second
+							if shortURL, ok := part.FunctionResponse.Response["short_url"].(string); ok && shortURL != "" {
+								urlMessage := fmt.Sprintf("Full output: %s", shortURL)
+								ia.ircConn.Privmsg(channel, urlMessage)
+							}
+						}
 					}
 				}
 			}
