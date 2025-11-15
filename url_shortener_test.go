@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"testing"
 )
 
 func TestURLShortener(t *testing.T) {
-	// Create a URL shortener
-	shortener := NewURLShortener("http://example.com:3000")
+	// Create a URL shortener with in-memory storage
+	storage := NewInMemoryStorage()
+	defer storage.Close()
+	shortener := NewURLShortener("http://example.com:3000", storage)
 
 	// Test URL
 	testURL := "https://example.com/very/long/url/that/needs/to/be/shortened"
@@ -19,13 +22,16 @@ func TestURLShortener(t *testing.T) {
 		t.Errorf("Expected short ID length of 8, got %d", len(shortID))
 	}
 
-	// Verify the URL is stored in the map
-	shortener.mu.RLock()
-	storedURL, exists := shortener.urlMap[shortID]
-	shortener.mu.RUnlock()
+	// Verify the URL is stored in the storage backend
+	ctx := context.Background()
+	storedURL, exists, err := storage.Get(ctx, shortID)
+
+	if err != nil {
+		t.Errorf("Error retrieving URL: %v", err)
+	}
 
 	if !exists {
-		t.Errorf("Short ID %s not found in urlMap", shortID)
+		t.Errorf("Short ID %s not found in storage", shortID)
 	}
 
 	if storedURL != testURL {
@@ -47,8 +53,10 @@ func TestURLShortener(t *testing.T) {
 }
 
 func TestURLShortenerWithSignedURL(t *testing.T) {
-	// Create a URL shortener
-	shortener := NewURLShortener("http://localhost:3000")
+	// Create a URL shortener with in-memory storage
+	storage := NewInMemoryStorage()
+	defer storage.Close()
+	shortener := NewURLShortener("http://localhost:3000", storage)
 
 	// Test with a signed URL (similar to S3 presigned URLs)
 	signedURL := "https://robust-cicada.s3.us-west-2.amazonaws.com/code-results/1234567890-abcdef.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20231115%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20231115T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
@@ -61,13 +69,16 @@ func TestURLShortenerWithSignedURL(t *testing.T) {
 		t.Errorf("Expected short ID length of 8, got %d", len(shortID))
 	}
 
-	// Verify the URL is stored in the map
-	shortener.mu.RLock()
-	storedURL, exists := shortener.urlMap[shortID]
-	shortener.mu.RUnlock()
+	// Verify the URL is stored in the storage backend
+	ctx := context.Background()
+	storedURL, exists, err := storage.Get(ctx, shortID)
+
+	if err != nil {
+		t.Errorf("Error retrieving URL: %v", err)
+	}
 
 	if !exists {
-		t.Errorf("Short ID %s not found in urlMap", shortID)
+		t.Errorf("Short ID %s not found in storage", shortID)
 	}
 
 	if storedURL != signedURL {
