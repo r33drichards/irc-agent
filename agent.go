@@ -199,7 +199,7 @@ func (e *TypeScriptExecutor) Execute(ctx tool.Context, params ExecuteTypeScriptP
 		"deno",
 		"run",
 		"--no-check",
-		"--allow-env=\"AWS_*\"",
+		"--allow-env=\"AWS_*\",\"AWS_LAMBDA_NODEJS_NO_GLOBAL_AWSLAMBDA\"",
 		"--allow-net=s3.us-west-2.amazonaws.com,robust-cicada.s3.us-west-2.amazonaws.com",
 		"--allow-read=.",
 		"--allow-write=.",
