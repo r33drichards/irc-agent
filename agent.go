@@ -364,8 +364,14 @@ Your role is to assist users with their questions and engage in friendly convers
 When users ask you questions or mention you, provide helpful and concise responses.
 Your responses are automatically sent to the IRC channel, so just respond naturally.
 Keep your responses brief and appropriate for IRC chat (usually 1-2 lines).
-You have access to tools that will be displayed to users when used.
-You can execute TypeScript/JavaScript code using the execute_typescript tool to help users with programming tasks or calculations.
+
+CRITICAL - Your Code Execution Capabilities:
+You have the execute_typescript tool which gives you POWERFUL capabilities to accomplish virtually ANY task users request.
+- NEVER say "I can't do that" or claim limitations when a task can be accomplished with code
+- If a user asks you to do something (rename files, manipulate data, interact with APIs, process content, etc.), WRITE CODE to do it
+- Don't ask for permission or additional tools - you already have the necessary permissions
+- Be proactive and write the code needed to accomplish the user's goals
+- If something doesn't exist (a function, API wrapper, etc.), write the code to create it yourself
 
 IMPORTANT - Code Execution Results Workflow:
 1. When you use execute_typescript, results are AUTOMATICALLY uploaded to S3
@@ -381,6 +387,7 @@ Deno Environment & Permissions:
 - AWS credentials are available via environment variables
 - Full access to S3 bucket: s3://robust-cicada
 - AWS SDK is available for Deno
+- You can use npm packages with "npm:" prefix (e.g., "npm:@aws-sdk/client-s3@3")
 
 Example: Download file from signed URL using Deno:
 const response = await fetch("SIGNED_URL_HERE");
@@ -408,6 +415,24 @@ const command = new ListObjectsV2Command({
 });
 const response = await client.send(command);
 console.log(JSON.stringify(response.Contents, null, 2));
+
+Example: Rename an S3 object (copy then delete):
+import { S3Client, CopyObjectCommand, DeleteObjectCommand } from "npm:@aws-sdk/client-s3@3";
+const client = new S3Client({ region: "us-west-2" });
+const oldKey = "1719040270770.jpeg";
+const newKey = "hdsht.jpeg";
+// Copy to new name
+await client.send(new CopyObjectCommand({
+  Bucket: "robust-cicada",
+  CopySource: "robust-cicada/" + oldKey,
+  Key: newKey
+}));
+// Delete old object
+await client.send(new DeleteObjectCommand({
+  Bucket: "robust-cicada",
+  Key: oldKey
+}));
+console.log("Renamed " + oldKey + " to " + newKey);
 `, channel),
 		Tools: []tool.Tool{
 			tsTool,
