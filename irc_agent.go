@@ -248,9 +248,15 @@ func (ia *IRCAgent) Start(ctx context.Context) error {
 
 // processMessage sends the IRC message to the ADK agent for processing
 func (ia *IRCAgent) processMessage(ctx context.Context, sender, message, channel string) {
-	// Handle IRC commands (messages starting with /)
+	// Handle IRC commands (messages starting with / or ,)
 	if strings.HasPrefix(message, "/") {
 		ia.handleCommand(sender, message, channel)
+		return
+	}
+
+	// Handle comma-prefixed commands
+	if strings.HasPrefix(message, ",") {
+		ia.handleCommaCommand(sender, message, channel)
 		return
 	}
 
@@ -391,6 +397,29 @@ func (ia *IRCAgent) handleCommand(sender, message, sourceChannel string) {
 
 	default:
 		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Unknown command: %s. Available commands: /join, /part, /nick", sender, command))
+	}
+}
+
+// handleCommaCommand processes comma-prefixed commands sent to the agent
+func (ia *IRCAgent) handleCommaCommand(sender, message, sourceChannel string) {
+	// Parse the command and arguments
+	parts := strings.Fields(message)
+	if len(parts) == 0 {
+		return
+	}
+
+	command := strings.ToLower(parts[0])
+
+	log.Printf("User %s sent comma command: %s", sender, command)
+
+	switch command {
+	case ",die":
+		log.Printf("Die command received from %s - triggering panic to restart process", sender)
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Restarting agent...", sender))
+		panic("message died")
+
+	default:
+		ia.ircConn.Privmsg(sourceChannel, fmt.Sprintf("%s: Unknown command: %s. Available commands: ,die", sender, command))
 	}
 }
 
